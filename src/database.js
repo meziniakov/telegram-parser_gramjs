@@ -43,8 +43,30 @@ async function savePost(postData) {
 }
 
 async function saveMediaMetadata(mediaData, retries = 3) {
-  // Конвертируем file_id в строку
-  const fileId = mediaData.file_id ? String(mediaData.file_id) : null;
+  // Безопасная конвертация file_id
+  let fileId = null;
+  
+  if (mediaData.file_id !== null && mediaData.file_id !== undefined) {
+    // Если это объект BigInt из Telegram
+    if (typeof mediaData.file_id === 'object' && mediaData.file_id.toString) {
+      fileId = mediaData.file_id.toString();
+    }
+    // Если это уже строка
+    else if (typeof mediaData.file_id === 'string') {
+      fileId = mediaData.file_id;
+    }
+    // Если это число
+    else if (typeof mediaData.file_id === 'number' || typeof mediaData.file_id === 'bigint') {
+      fileId = String(mediaData.file_id);
+    }
+    // Fallback
+    else {
+      fileId = String(mediaData.file_id);
+    }
+  }
+  
+  // Убедитесь что file_size это число или null
+  const fileSize = mediaData.file_size ? parseInt(mediaData.file_size) : null;
   
   const query = `
     INSERT INTO media_files (
@@ -52,10 +74,17 @@ async function saveMediaMetadata(mediaData, retries = 3) {
       mime_type, width, height, duration, thumbnail_url
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    ON CONFLICT (post_id, file_id) 
+    ON CONFLICT (post_id)
     DO UPDATE SET 
+      media_type = EXCLUDED.media_type,
+      file_id = EXCLUDED.file_id,
       file_url = EXCLUDED.file_url,
       direct_url = EXCLUDED.direct_url,
+      file_size = EXCLUDED.file_size,
+      mime_type = EXCLUDED.mime_type,
+      width = EXCLUDED.width,
+      height = EXCLUDED.height,
+      duration = EXCLUDED.duration,
       thumbnail_url = EXCLUDED.thumbnail_url
     RETURNING id
   `;
@@ -65,10 +94,10 @@ async function saveMediaMetadata(mediaData, retries = 3) {
       const result = await pool.query(query, [
         mediaData.post_id,
         mediaData.media_type || 'unknown',
-        fileId,  // Используем строковый file_id
+        fileId,  // Правильно сконвертированный file_id
         mediaData.file_url,
         mediaData.direct_url,
-        mediaData.file_size,
+        fileSize,  // Убедились что это число
         mediaData.mime_type,
         mediaData.width,
         mediaData.height,
@@ -80,34 +109,29 @@ async function saveMediaMetadata(mediaData, retries = 3) {
       
     } catch (error) {
       console.error(`Error saving media (attempt ${attempt}/${retries}):`, error.message);
-      
-      // Если это проблема с constraint - не повторяем
-      if (error.message.includes('constraint')) {
-        console.warn(`Skipping media for post ${mediaData.post_id} - constraint issue`);
-        return null;
-      }
+      console.error(`Media data:`, {
+        post_id: mediaData.post_id,
+        file_id: fileId,
+        file_id_type: typeof fileId,
+        file_size: fileSize,
+        file_size_type: typeof fileSize
+      });
       
       if (
         error.message.includes('timeout') || 
-        error.message.includes('Connection terminated') ||
-        error.code === 'ECONNRESET' ||
-        error.code === 'ETIMEDOUT'
+        error.message.includes('Connection terminated')
       ) {
         if (attempt < retries) {
-          console.log(`Retrying in 2 seconds...`);
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
       }
       
-      // Не бросаем ошибку, просто возвращаем null
-      console.warn(`Failed to save media metadata: ${error.message}`);
       return null;
     }
   }
 }
 
-// ВАЖНО: Экспортируйте ВСЕ функции
 module.exports = { 
   pool, 
   savePost, 

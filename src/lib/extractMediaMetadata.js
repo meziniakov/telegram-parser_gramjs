@@ -1,5 +1,36 @@
 const {getDirectMediaUrl} = require('./getDirectMediaUrl')
 
+// Helper для конвертации BigInt в строку
+function bigIntToString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  
+  // Если это BigInt объект из GramJS
+  if (typeof value === 'object' && value.toString) {
+    return value.toString();
+  }
+  
+  // Если это встроенный BigInt
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  
+  // Если это уже строка
+  if (typeof value === 'string') {
+    return value;
+  }
+  
+  // Если это число
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  
+  // Fallback
+  return String(value);
+}
+
+
 // Извлечение метаданных медиа + генерация публичной ссылки
 async function extractMediaMetadata(media, messageId, channelUsername) {
   const metadata = {
@@ -20,7 +51,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
 
   if (media.photo) {
     metadata.type = 'photo';
-    metadata.fileId = media.photo.id?.toString();
+    metadata.fileId = bigIntToString(media.photo.id);
     
     // Получаем прямую ссылку через веб-скрапинг
     metadata.directUrl = await getDirectMediaUrl(channelUsername, messageId);
@@ -34,7 +65,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
   } 
   else if (media.document) {
     const doc = media.document;
-    metadata.fileId = doc.id?.toString();
+    metadata.fileId = bigIntToString(media.photo.id);
     metadata.size = doc.size;
     metadata.mimeType = doc.mimeType;
     

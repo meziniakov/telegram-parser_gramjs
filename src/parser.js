@@ -117,28 +117,43 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
         }
 
         // Извлечение метаданных медиа И генерация ссылки
-        if (msg.media) {
-          try {
-            const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, channelUsername);
-            
-            await saveMediaMetadata({
-              post_id: postId,
-              media_type: mediaMetadata.type,
-              file_id: mediaMetadata.fileId,
-              file_size: mediaMetadata.size,
-              mime_type: mediaMetadata.mimeType,
-              width: mediaMetadata.width,
-              height: mediaMetadata.height,
-              duration: mediaMetadata.duration,
-              file_url: mediaMetadata.publicUrl,  // Публичная ссылка на медиа
-              thumbnail_url: mediaMetadata.thumbnailUrl
-            });
+if (msg.media) {
+  try {
+    const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
+    
+    // Логирование для отладки
+    console.log(`[${jobId}] Media metadata for message ${msg.id}:`, {
+      type: mediaMetadata.type,
+      fileId: mediaMetadata.fileId,
+      fileIdType: typeof mediaMetadata.fileId,
+      size: mediaMetadata.size,
+      sizeType: typeof mediaMetadata.size
+    });
+    
+    // Получаем прямую ссылку если запрошено
+    if (fetchDirectUrls) {
+      mediaMetadata.directUrl = await getDirectMediaUrl(cleanChannelName, msg.id);
+    }
+    
+    await saveMediaMetadata({
+      post_id: postId,
+      media_type: mediaMetadata.type,
+      file_id: mediaMetadata.fileId,
+      file_size: mediaMetadata.size,
+      mime_type: mediaMetadata.mimeType,
+      width: mediaMetadata.width,
+      height: mediaMetadata.height,
+      duration: mediaMetadata.duration,
+      file_url: mediaMetadata.publicUrl,
+      direct_url: mediaMetadata.directUrl,
+      thumbnail_url: mediaMetadata.thumbnailUrl
+    });
 
-            mediaCount++;
-          } catch (error) {
-            console.error(`[${jobId}] Failed to save media metadata for message ${msg.id}:`, error.message);
-          }
-        }
+    mediaCount++;
+  } catch (error) {
+    console.error(`[${jobId}] Failed to save media metadata for message ${msg.id}:`, error.message);
+  }
+}
         
         // Задержка между постами (0.5-1.5 сек)
         if (i < totalMessages.length - 1) {
