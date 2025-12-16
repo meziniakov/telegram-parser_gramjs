@@ -86,8 +86,80 @@ app.get('/health/tables', async (req, res) => {
   }
 });
 
-// Остальной код (parseChannel endpoint и т.д.)
-// ...
+app.post('/api/parse', async (req, res) => {
+  try {
+    const { 
+      channel_username, 
+      limit = 50, 
+      offset = 0,
+      download_media = true 
+    } = req.body;
+
+    // Валидация
+    if (!channel_username) {
+      return res.status(400).json({ 
+        status: 'error',
+        error: 'channel_username required' 
+      });
+    }
+
+    // Генерируем job_id
+    const jobId = Date.now().toString();
+    
+    // Отвечаем сразу
+    res.json({ 
+      status: 'processing', 
+      job_id: jobId,
+      channel: channel_username,
+      message: 'Parsing started'
+    });
+
+    // Запускаем парсинг асинхронно
+    parseChannel(channel_username, limit, offset, download_media, jobId)
+      .then(result => {
+        console.log(`✓ Parsing completed for ${channel_username}:`, result);
+      })
+      .catch(err => {
+        console.error(`✗ Parsing failed for ${channel_username}:`, err.message);
+      });
+
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      error: error.message 
+    });
+  }
+});
+
+// Endpoint для проверки статуса парсинга
+app.get('/api/status/:job_id', async (req, res) => {
+  const { job_id } = req.params;
+  
+  try {
+    const client = await pool.connect();
+    
+    // Подсчитываем посты по job_id
+    const result = await client.query(
+      'SELECT COUNT(*) as count FROM posts WHERE job_id = $1',
+      [job_id]
+    );
+    
+    client.release();
+    
+    const count = parseInt(result.rows[0].count);
+    
+    res.json({ 
+      job_id,
+      status: count > 0 ? 'completed' : 'processing',
+      posts_parsed: count
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message
+    });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
