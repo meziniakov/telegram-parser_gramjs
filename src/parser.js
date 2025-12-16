@@ -95,11 +95,16 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
       try {
         const isAd = detectAdvertising(msg.text);
 
+        // ИСПРАВЛЕНИЕ: Конвертируйте timestamp в Date
+        const messageDate = msg.date instanceof Date 
+        ? msg.date 
+        : new Date(msg.date * 1000); // Умножаем на 1000 (секунды → миллисекунды)
+
         const postId = await savePost({
           channel_username: channelUsername,
           message_id: msg.id,
           text: msg.text || '',
-          date: msg.date,
+          date: messageDate,
           views: msg.views || 0,
           is_ad: isAd,
           job_id: jobId
