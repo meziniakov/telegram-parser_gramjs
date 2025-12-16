@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { sleep } = require('./sleep');
 
 // Функция для получения прямой ссылки через веб-скрапинг
 async function getDirectMediaUrl(channelUsername, messageId) {
