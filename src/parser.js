@@ -162,7 +162,7 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
   } finally {
     // НЕ закрывайте пул здесь! Он переиспользуется
     // Только логируем статус
-    console.log(`[${jobId}] Active connections: ${pool.totalCount}`);
+    console.log(`[${jobId}] Active connections: `);
   }
 }
 
