@@ -2,13 +2,14 @@ const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { savePost, saveMediaMetadata } = require('./database');
 const {extractMediaMetadata} = require('./lib/extractMediaMetadata')
+const {getDirectMediaUrl} = require('./lib/getDirectMediaUrl')
 const {detectAdvertising} = require('./lib/detectAdvertising')
 const {sleep} = require('./lib/sleep')
 const {randomDelay} = require('./lib/randomDelay')
 
-async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId) {
+async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId, fetchDirectUrls) {
   console.log(`[${jobId}] Starting safe parse: ${channelUsername}`);
-  console.log(`[${jobId}] Limit: ${limit}, Download media: ${downloadMedia}`);
+  console.log(`[${jobId}] Limit: ${limit}, Download media: ${downloadMedia}, Fetch direct urls: ${fetchDirectUrls}`);
   
   const client = new TelegramClient(
     new StringSession(process.env.TELEGRAM_SESSION),
@@ -26,8 +27,11 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
     await client.connect();
     console.log(`[${jobId}] ✓ Connected to Telegram`);
 
+     // ВАЖНО: Определяем cleanChannelName в начале
+    const cleanChannelName = channelUsername.replace(/^@/, '');
+
     // Получаем информацию о канале для построения ссылок
-    const entity = await client.getEntity(channelUsername);
+    const entity = await client.getEntity(cleanChannelName);
     const channelId = entity.id;
     const channelAccess = entity.accessHash;
     
@@ -101,7 +105,7 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
         : new Date(msg.date * 1000); // Умножаем на 1000 (секунды → миллисекунды)
 
         const postId = await savePost({
-          channel_username: channelUsername,
+          channel_username: cleanChannelName,
           message_id: msg.id,
           text: msg.text || '',
           date: messageDate,
@@ -121,19 +125,20 @@ if (msg.media) {
   try {
     const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
     
-    // Логирование для отладки
-    console.log(`[${jobId}] Media metadata for message ${msg.id}:`, {
-      type: mediaMetadata.type,
-      fileId: mediaMetadata.fileId,
-      fileIdType: typeof mediaMetadata.fileId,
-      size: mediaMetadata.size,
-      sizeType: typeof mediaMetadata.size
-    });
-    
     // Получаем прямую ссылку если запрошено
     if (fetchDirectUrls) {
       mediaMetadata.directUrl = await getDirectMediaUrl(cleanChannelName, msg.id);
     }
+
+    // Логирование для отладки
+    console.log(`[${jobId}] Media metadata for message ${msg.id}:`, {mediaMetadata}, {
+      type: mediaMetadata.type,
+      fileId: mediaMetadata.fileId,
+      fileIdType: typeof mediaMetadata.fileId,
+      size: mediaMetadata.size,
+      sizeType: typeof mediaMetadata.size,
+      directUrl: mediaMetadata.directUrl
+    });
     
     await saveMediaMetadata({
       post_id: postId,
