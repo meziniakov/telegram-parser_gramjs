@@ -1,8 +1,19 @@
+require('dotenv').config();
+
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  ssl: false,
+  max: 20,
+   idleTimeoutMillis: 60000,           // Увеличено до 60 сек
+  connectionTimeoutMillis: 30000,     // Увеличено до 30 сек
+  statement_timeout: 30000,           // Таймаут запроса 30 сек
+  query_timeout: 30000,               // Таймаут запроса 30 сек
 });
 
 async function savePost(postData) {
@@ -10,7 +21,7 @@ async function savePost(postData) {
     INSERT INTO posts (channel_username, message_id, text, date, views, is_ad, job_id)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (message_id) DO UPDATE 
-    SET views = EXCLUDED.views
+    SET views = EXCLUDED.views, text = EXCLUDED.text
     RETURNING id
   `;
   
@@ -26,15 +37,22 @@ async function savePost(postData) {
     ]);
     return result.rows[0].id;
   } catch (error) {
-    console.error('Error saving post:', error);
+    console.error('Error saving post:', error.message);
     throw error;
   }
 }
 
-async function saveMedia(mediaData) {
+async function saveMediaMetadata(mediaData) {
   const query = `
-    INSERT INTO media_files (post_id, media_type, file_url, file_size)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO media_files (
+      post_id, media_type, file_id, file_url, direct_url, file_size, 
+      mime_type, width, height, duration, thumbnail_url
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    ON CONFLICT (post_id, file_id) DO UPDATE
+    SET file_url = EXCLUDED.file_url,
+        direct_url = EXCLUDED.direct_url,
+        thumbnail_url = EXCLUDED.thumbnail_url
     RETURNING id
   `;
   
@@ -42,14 +60,27 @@ async function saveMedia(mediaData) {
     const result = await pool.query(query, [
       mediaData.post_id,
       mediaData.media_type,
+      mediaData.file_id,
       mediaData.file_url,
-      mediaData.file_size
+      mediaData.direct_url,
+      mediaData.file_size,
+      mediaData.mime_type,
+      mediaData.width,
+      mediaData.height,
+      mediaData.duration,
+      mediaData.thumbnail_url
     ]);
-    return result.rows[0].id;
+    
+    return result.rows.length > 0 ? result.rows[0].id : null;
   } catch (error) {
-    console.error('Error saving media:', error);
+    console.error('Error saving media metadata:', error.message);
     throw error;
   }
 }
 
-module.exports = { savePost, saveMedia };
+// ВАЖНО: Экспортируйте ВСЕ функции
+module.exports = { 
+  pool, 
+  savePost, 
+  saveMediaMetadata 
+};
