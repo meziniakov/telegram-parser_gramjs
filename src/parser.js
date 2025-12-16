@@ -1,11 +1,9 @@
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { savePost, saveMediaMetadata } = require('./database');
-const {extractMediaMetadata} = require('./lib/extractMediaMetadata')
-const {getDirectMediaUrl} = require('./lib/getDirectMediaUrl')
-const {detectAdvertising} = require('./lib/detectAdvertising')
-const {sleep} = require('./lib/sleep')
-const {randomDelay} = require('./lib/randomDelay')
+const { extractMediaMetadata } = require('./lib/extractMediaMetadata')
+const { detectAdvertising } = require('./lib/detectAdvertising')
+const { sleep, randomDelay } = require('./lib/utils')
 
 async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId, fetchDirectUrls) {
   console.log(`[${jobId}] Starting safe parse: ${channelUsername}`);
@@ -33,7 +31,6 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
     // Получаем информацию о канале для построения ссылок
     const entity = await client.getEntity(cleanChannelName);
     const channelId = entity.id;
-    const channelAccess = entity.accessHash;
     
     console.log(`[${jobId}] ✓ Channel ID: ${channelId}`);
 
@@ -123,23 +120,19 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
         // Извлечение метаданных медиа И генерация ссылки
 if (msg.media) {
   try {
+    // Логируем тип медиа для отладки
+    console.log(`[${jobId}] Message ${msg.id} media type:`, msg.media.className || typeof msg.media);
+
+    // Извлекаем метаданные медиа
     const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
-    
-    // Получаем прямую ссылку если запрошено
-    if (fetchDirectUrls) {
-      mediaMetadata.directUrl = await getDirectMediaUrl(cleanChannelName, msg.id);
+
+    // Пропускаем если нет file_id (например, webpage, poll)
+    if (!mediaMetadata.fileId) {
+      console.log(`[${jobId}] Skipping media for ${msg.id} - no file_id (${mediaMetadata.type})`);
+      continue;
     }
 
-    // Логирование для отладки
-    console.log(`[${jobId}] Media metadata for message ${msg.id}:`, {mediaMetadata}, {
-      type: mediaMetadata.type,
-      fileId: mediaMetadata.fileId,
-      fileIdType: typeof mediaMetadata.fileId,
-      size: mediaMetadata.size,
-      sizeType: typeof mediaMetadata.size,
-      directUrl: mediaMetadata.directUrl
-    });
-    
+    // Сохраняем метаданные медиа в БД
     await saveMediaMetadata({
       post_id: postId,
       media_type: mediaMetadata.type,
@@ -159,7 +152,6 @@ if (msg.media) {
     console.error(`[${jobId}] Failed to save media metadata for message ${msg.id}:`, error.message);
   }
 }
-        
         // Задержка между постами (0.5-1.5 сек)
         if (i < totalMessages.length - 1) {
           await sleep(randomDelay(500, 1500));
@@ -184,10 +176,6 @@ if (msg.media) {
     console.error(`[${jobId}] ❌ Fatal error:`, error.message);
     throw error;
 
-  } finally {
-    // НЕ закрывайте пул здесь! Он переиспользуется
-    // Только логируем статус
-    console.log(`[${jobId}] Active connections: `);
   }
 }
 

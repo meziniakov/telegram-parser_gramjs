@@ -1,35 +1,5 @@
-const {getDirectMediaUrl} = require('./getDirectMediaUrl')
-
-// Helper для конвертации BigInt в строку
-function bigIntToString(value) {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  
-  // Если это BigInt объект из GramJS
-  if (typeof value === 'object' && value.toString) {
-    return value.toString();
-  }
-  
-  // Если это встроенный BigInt
-  if (typeof value === 'bigint') {
-    return value.toString();
-  }
-  
-  // Если это уже строка
-  if (typeof value === 'string') {
-    return value;
-  }
-  
-  // Если это число
-  if (typeof value === 'number') {
-    return String(value);
-  }
-  
-  // Fallback
-  return String(value);
-}
-
+const { getDirectMediaUrl } = require('./getDirectMediaUrl')
+const { bigIntToString } = require('./utils');
 
 // Извлечение метаданных медиа + генерация публичной ссылки
 async function extractMediaMetadata(media, messageId, channelUsername) {
@@ -49,52 +19,71 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
   const postUrl = `https://t.me/${channelUsername}/${messageId}`;
   metadata.publicUrl = postUrl;
 
-  if (media.photo) {
+  // Проверка на null/undefined
+  if (!media) {
+    console.warn(`No media object for message ${messageId}`);
+    return metadata;
+  }
+
+  if (media.photo && media.photo.id) {
     metadata.type = 'photo';
     metadata.fileId = bigIntToString(media.photo.id);
     
     // Получаем прямую ссылку через веб-скрапинг
     metadata.directUrl = await getDirectMediaUrl(channelUsername, messageId);
     
-    if (media.photo.sizes && media.photo.sizes.length > 0) {
+    if (media.photo.sizes && Array.isArray(media.photo.sizes) && media.photo.sizes.length > 0) {
       const largestSize = media.photo.sizes[media.photo.sizes.length - 1];
       metadata.width = largestSize.w;
       metadata.height = largestSize.h;
       metadata.size = largestSize.size;
     }
-  } 
-  else if (media.document) {
+  } else if (media.document && media.document.id) {
     const doc = media.document;
-    metadata.fileId = bigIntToString(media.photo.id);
+    metadata.fileId = bigIntToString(media.document.id);
     metadata.size = doc.size;
     metadata.mimeType = doc.mimeType;
     
     // Получаем прямую ссылку
     metadata.directUrl = await getDirectMediaUrl(channelUsername, messageId);
     
-    if (doc.mimeType?.startsWith('video/')) {
+    if (doc.mimeType && doc.mimeType.startsWith('video/')) {
       metadata.type = 'video';
       
-      if (doc.attributes) {
+      if (doc.attributes && Array.isArray(doc.attributes)) {
         for (const attr of doc.attributes) {
           if (attr.className === 'DocumentAttributeVideo') {
             metadata.width = attr.w;
             metadata.height = attr.h;
             metadata.duration = attr.duration;
           }
+          if (attr && attr.className === 'DocumentAttributeFilename') {
+            metadata.filename = attr.fileName;
+          }
         }
       }
     } 
-    else if (doc.mimeType?.startsWith('image/')) {
+    else if (doc.mimeType && doc.mimeType.startsWith('image/')) {
       metadata.type = 'image';
     }
-    else if (doc.mimeType?.startsWith('audio/')) {
+    else if (doc.mimeType && doc.mimeType.startsWith('audio/')) {
       metadata.type = 'audio';
+      if (doc.attributes && Array.isArray(doc.attributes)) {
+        for (const attr of doc.attributes) {
+          if (attr && attr.className === 'DocumentAttributeAudio') {
+            metadata.duration = attr.duration;
+            metadata.title = attr.title;
+            metadata.performer = attr.performer;
+          }
+        }
+      }
     }
     else {
       metadata.type = 'document';
     }
   }
+
+  // console.log(`Extracted metadata for message ${messageId}:`, metadata);
 
   return metadata;
 }
