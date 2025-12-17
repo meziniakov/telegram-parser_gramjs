@@ -9,7 +9,7 @@ function parseArgs() {
     limit: 100,
     offset: 0,
     downloadMedia: false,
-    fetchDirectUrls: false
+    fetchDirectUrls: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -97,8 +97,8 @@ async function main() {
 
   // Проверка переменных окружения
   const requiredEnvVars = ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SESSION'];
-  const missingVars = requiredEnvVars.filter(v => !process.env[v]);
-  
+  const missingVars = requiredEnvVars.filter((v) => !process.env[v]);
+
   if (missingVars.length > 0) {
     console.error(`❌ Error: Missing environment variables: ${missingVars.join(', ')}`);
     console.error('Create a .env file or set these variables\n');
@@ -108,7 +108,7 @@ async function main() {
   console.log('╔════════════════════════════════════════════════╗');
   console.log('║   Telegram Channel Parser CLI                  ║');
   console.log('╚════════════════════════════════════════════════╝\n');
-  
+
   console.log('Configuration:');
   console.log(`  Channel:       @${options.channel}`);
   console.log(`  Limit:         ${options.limit} messages`);
@@ -121,7 +121,7 @@ async function main() {
 
   try {
     console.log('🚀 Starting parser...\n');
-    
+
     const result = await parseChannel(
       options.channel,
       options.limit,
@@ -134,7 +134,7 @@ async function main() {
     console.log('\n╔════════════════════════════════════════════════╗');
     console.log('║   ✓ Parsing completed successfully!           ║');
     console.log('╚════════════════════════════════════════════════╝\n');
-    
+
     console.log('Results:');
     console.log(`  Posts saved:      ${result.parsed}`);
     console.log(`  Media metadata:   ${result.media_metadata || 0}`);
@@ -142,23 +142,22 @@ async function main() {
     console.log('');
 
     process.exit(0);
-
   } catch (error) {
     console.error('\n╔════════════════════════════════════════════════╗');
     console.error('║   ❌ Parsing failed!                           ║');
     console.error('╚════════════════════════════════════════════════╝\n');
-    
+
     console.error('Error:', error.message);
-    
+
     if (error.errorMessage) {
       console.error('Telegram Error:', error.errorMessage);
     }
-    
+
     if (error.stack) {
       console.error('\nStack trace:');
       console.error(error.stack);
     }
-    
+
     process.exit(1);
   }
 }

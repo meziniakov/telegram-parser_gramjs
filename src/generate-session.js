@@ -6,12 +6,9 @@ const apiId = parseInt(process.env.TELEGRAM_API_ID);
 const apiHash = process.env.TELEGRAM_API_HASH;
 
 (async () => {
-  const client = new TelegramClient(
-    new StringSession(''),
-    apiId,
-    apiHash,
-    { connectionRetries: 5 }
-  );
+  const client = new TelegramClient(new StringSession(''), apiId, apiHash, {
+    connectionRetries: 5,
+  });
 
   await client.start({
     phoneNumber: async () => await input.text('Номер телефона: '),

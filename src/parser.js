@@ -1,23 +1,25 @@
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
-const { savePost, saveMediaMetadata } = require('./database');
-const { extractMediaMetadata } = require('./lib/extractMediaMetadata')
-const { detectAdvertising } = require('./lib/detectAdvertising')
-const { sleep, randomDelay } = require('./lib/utils')
+const { sleep, randomDelay } = require('./lib/utils');
+const { processSingleMessage } = require('./lib/processSingleMessage');
+const { processGroupedMessages } = require('./lib/processGroupedMessages');
+const { ensureBoundaryGroupsComplete } = require('./lib/ensureBoundaryGroupsComplete');
 
 async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId, fetchDirectUrls) {
   console.log(`[${jobId}] Starting safe parse: ${channelUsername}`);
-  console.log(`[${jobId}] Limit: ${limit}, Download media: ${downloadMedia}, Fetch direct urls: ${fetchDirectUrls}`);
-  
+  console.log(
+    `[${jobId}] Limit: ${limit}, Download media: ${downloadMedia}, Fetch direct urls: ${fetchDirectUrls}`
+  );
+
   const client = new TelegramClient(
     new StringSession(process.env.TELEGRAM_SESSION),
     parseInt(process.env.TELEGRAM_API_ID),
     process.env.TELEGRAM_API_HASH,
-    { 
+    {
       connectionRetries: 5,
       floodSleepThreshold: 300,
       useWSS: false,
-      autoReconnect: true
+      autoReconnect: true,
     }
   );
 
@@ -25,47 +27,52 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
     await client.connect();
     console.log(`[${jobId}] ✓ Connected to Telegram`);
 
-     // ВАЖНО: Определяем cleanChannelName в начале
+    // ВАЖНО: Определяем cleanChannelName в начале
     const cleanChannelName = channelUsername.replace(/^@/, '');
 
     // Получаем информацию о канале для построения ссылок
     const entity = await client.getEntity(cleanChannelName);
     const channelId = entity.id;
-    
+
     console.log(`[${jobId}] ✓ Channel ID: ${channelId}`);
+
+    // Добавляем небольшой запас
+    const fetchLimit = limit + 10;
+    console.log(`[${jobId}] Requested limit: ${limit}, fetching: ${fetchLimit} (with buffer)`);
 
     // Безопасный размер батча
     const batchSize = 50;
     const totalMessages = [];
-    const maxBatches = Math.ceil(limit / batchSize);
-    
+    const maxBatches = Math.ceil(fetchLimit / batchSize);
+
     // Получаем сообщения порциями
     for (let batch = 0; batch < maxBatches; batch++) {
-      const currentLimit = Math.min(batchSize, limit - batch * batchSize);
-      
+      const currentLimit = Math.min(batchSize, fetchLimit - batch * batchSize);
+
       try {
         console.log(`[${jobId}] Fetching batch ${batch + 1}/${maxBatches}...`);
-        
+
         const messages = await client.getMessages(channelUsername, {
           limit: currentLimit,
-          offsetId: offset + (batch * batchSize),
+          offsetId: offset + batch * batchSize,
         });
-        
+
+        console.log(`[${jobId}] ✓ Total messages: ${JSON.stringify({ messages })}`);
+
         totalMessages.push(...messages);
         console.log(`[${jobId}] ✓ Batch ${batch + 1}: ${messages.length} messages`);
-        
+
         // Задержка между батчами (3-7 секунд)
         if (batch < maxBatches - 1 && messages.length > 0) {
           const delay = randomDelay(3000, 7000);
           console.log(`[${jobId}] Waiting ${Math.round(delay / 1000)}s before next batch...`);
           await sleep(delay);
         }
-        
+
         if (messages.length < currentLimit) {
           console.log(`[${jobId}] Reached end of channel`);
           break;
         }
-        
       } catch (error) {
         if (error.errorMessage === 'FLOOD') {
           const waitTime = error.seconds || 60;
@@ -74,108 +81,119 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
           batch--;
           continue;
         }
-        
+
         if (error.errorMessage === 'CHANNEL_PRIVATE') {
           console.error(`[${jobId}] ❌ Channel is private or doesn't exist`);
           throw new Error('Channel is private or not accessible');
         }
-        
+
         throw error;
       }
     }
 
     console.log(`[${jobId}] ✓ Total fetched: ${totalMessages.length} messages`);
 
-    // Обработка сообщений с задержками
-    let savedCount = 0;
-    let mediaCount = 0;
-    
-    for (let i = 0; i < totalMessages.length; i++) {
-      const msg = totalMessages[i];
-      
-      try {
-        const isAd = detectAdvertising(msg.text);
+    // Проверяем граничные группы
+    const additionalMessages = await ensureBoundaryGroupsComplete(
+      client,
+      channelUsername,
+      totalMessages,
+      jobId
+    );
 
-        // ИСПРАВЛЕНИЕ: Конвертируйте timestamp в Date
-        const messageDate = msg.date instanceof Date 
-        ? msg.date 
-        : new Date(msg.date * 1000); // Умножаем на 1000 (секунды → миллисекунды)
-
-        const postId = await savePost({
-          channel_username: cleanChannelName,
-          message_id: msg.id,
-          text: msg.text || '',
-          date: messageDate,
-          views: msg.views || 0,
-          is_ad: isAd,
-          job_id: jobId
-        });
-
-        savedCount++;
-        
-        if ((i + 1) % 10 === 0) {
-          console.log(`[${jobId}] Progress: ${i + 1}/${totalMessages.length} posts saved`);
-        }
-
-        // Извлечение метаданных медиа И генерация ссылки
-if (msg.media) {
-  try {
-    // Логируем тип медиа для отладки
-    console.log(`[${jobId}] Message ${msg.id} media type:`, msg.media.className || typeof msg.media);
-
-    // Извлекаем метаданные медиа
-    const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
-
-    // Пропускаем если нет file_id (например, webpage, poll)
-    if (!mediaMetadata.fileId) {
-      console.log(`[${jobId}] Skipping media for ${msg.id} - no file_id (${mediaMetadata.type})`);
-      continue;
+    if (additionalMessages.length > 0) {
+      totalMessages.push(...additionalMessages);
+      totalMessages.sort((a, b) => b.id - a.id);
     }
 
-    // Сохраняем метаданные медиа в БД
-    await saveMediaMetadata({
-      post_id: postId,
-      media_type: mediaMetadata.type,
-      file_id: mediaMetadata.fileId,
-      file_size: mediaMetadata.size,
-      mime_type: mediaMetadata.mimeType,
-      width: mediaMetadata.width,
-      height: mediaMetadata.height,
-      duration: mediaMetadata.duration,
-      file_url: mediaMetadata.publicUrl,
-      direct_url: mediaMetadata.directUrl,
-      thumbnail_url: mediaMetadata.thumbnailUrl
-    });
+    // Группируем сообщения по groupedId
+    const messageGroups = new Map();
+    const standaloneMessages = [];
 
-    mediaCount++;
-  } catch (error) {
-    console.error(`[${jobId}] Failed to save media metadata for message ${msg.id}:`, error.message);
-  }
-}
-        // Задержка между постами (0.5-1.5 сек)
-        if (i < totalMessages.length - 1) {
-          await sleep(randomDelay(500, 1500));
+    for (const msg of totalMessages) {
+      if (msg.groupedId) {
+        // console.log(`[${jobId}] Message ${msg.id} is part of grouped album - ${JSON.stringify(msg)}`);
+        // Это часть альбома
+        const groupId = msg.groupedId.toString();
+        if (!messageGroups.has(groupId)) {
+          messageGroups.set(groupId, []);
         }
-        
+        messageGroups.get(groupId).push(msg);
+      } else {
+        // Отдельное сообщение
+        standaloneMessages.push(msg);
+      }
+    }
+
+    console.log(
+      `[${jobId}] Found ${standaloneMessages.length} standalone messages and ${messageGroups.size} grouped albums`
+    );
+
+    // Обрабатываем с учетом лимита ПОСТОВ (не сообщений)
+    let processedPosts = 0;
+    let savedCount = 0;
+    let mediaCount = 0;
+
+    // 1. Обработка отдельных сообщений
+    for (const msg of standaloneMessages) {
+      if (processedPosts >= limit) {
+        console.log(`[${jobId}] Reached post limit (${limit}), stopping`);
+        break;
+      }
+
+      try {
+        const result = await processSingleMessage(msg, cleanChannelName, jobId, fetchDirectUrls);
+        savedCount += result.savedPosts;
+        mediaCount += result.savedMedia;
+        processedPosts++;
+
+        await sleep(randomDelay(500, 1500));
       } catch (error) {
-        console.error(`[${jobId}] Error processing message ${msg.id}:`, error.message);
+        console.error(`[${jobId}] Error:`, error.message);
+      }
+    }
+
+    // 2. Обработка сгруппированных сообщений (альбомов)
+    for (const [groupId, messages] of messageGroups.entries()) {
+      if (processedPosts >= limit) {
+        console.log(`[${jobId}] Reached post limit (${limit}), stopping`);
+        break;
+      }
+
+      try {
+        const result = await processGroupedMessages(
+          messages,
+          cleanChannelName,
+          jobId,
+          fetchDirectUrls
+        );
+        savedCount += result.savedPosts;
+        mediaCount += result.savedMedia;
+        processedPosts++;
+
+        await sleep(randomDelay(500, 1500));
+      } catch (error) {
+        console.error(`[${jobId}] Error processing group ${groupId}:`, error.message);
       }
     }
 
     await client.disconnect();
     console.log(`[${jobId}] ✓ Disconnected from Telegram`);
     console.log(`[${jobId}] ✓ Completed: ${savedCount} posts, ${mediaCount} media metadata saved`);
-    
-    return { 
+
+    return {
       parsed: savedCount,
       media_metadata: mediaCount,
-      job_id: jobId 
+      job_id: jobId,
     };
-    
   } catch (error) {
     console.error(`[${jobId}] ❌ Fatal error:`, error.message);
+    try {
+      await client.disconnect();
+    } catch (e) {
+      console.error(`[${jobId}] Error during disconnect:`, e.message);
+    }
     throw error;
-
   }
 }
 

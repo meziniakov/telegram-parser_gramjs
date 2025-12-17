@@ -8,7 +8,7 @@ app.use(express.json());
 // Создаем pool для проверки подключения
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
 // Базовый healthcheck
@@ -20,12 +20,12 @@ app.get('/health', (req, res) => {
 app.get('/health/db', async (req, res) => {
   try {
     const client = await pool.connect();
-    
+
     // Простой запрос для проверки
     const result = await client.query('SELECT NOW() as current_time, version() as pg_version');
-    
+
     client.release();
-    
+
     res.json({
       status: 'ok',
       database: 'connected',
@@ -34,8 +34,8 @@ app.get('/health/db', async (req, res) => {
       pool_info: {
         total_connections: pool.totalCount,
         idle_connections: pool.idleCount,
-        waiting_requests: pool.waitingCount
-      }
+        waiting_requests: pool.waitingCount,
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -44,8 +44,8 @@ app.get('/health/db', async (req, res) => {
       error: error.message,
       details: {
         code: error.code,
-        host: error.hostname || 'unknown'
-      }
+        host: error.hostname || 'unknown',
+      },
     });
   }
 });
@@ -54,7 +54,7 @@ app.get('/health/db', async (req, res) => {
 app.get('/health/tables', async (req, res) => {
   try {
     const client = await pool.connect();
-    
+
     // Проверяем наличие нужных таблиц
     const tablesQuery = `
       SELECT table_name 
@@ -62,26 +62,24 @@ app.get('/health/tables', async (req, res) => {
       WHERE table_schema = 'public' 
       AND table_name IN ('posts', 'media_files')
     `;
-    
+
     const result = await client.query(tablesQuery);
     client.release();
-    
-    const existingTables = result.rows.map(row => row.table_name);
+
+    const existingTables = result.rows.map((row) => row.table_name);
     const requiredTables = ['posts', 'media_files'];
-    const missingTables = requiredTables.filter(t => !existingTables.includes(t));
-    
+    const missingTables = requiredTables.filter((t) => !existingTables.includes(t));
+
     res.json({
       status: missingTables.length === 0 ? 'ok' : 'warning',
       existing_tables: existingTables,
       missing_tables: missingTables,
-      message: missingTables.length === 0 
-        ? 'All required tables exist' 
-        : 'Some tables are missing'
+      message: missingTables.length === 0 ? 'All required tables exist' : 'Some tables are missing',
     });
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -89,43 +87,42 @@ app.get('/health/tables', async (req, res) => {
 // В endpoint /api/parse установите download_media = false по умолчанию
 app.post('/api/parse', async (req, res) => {
   try {
-    const { 
-      channel_username, 
-      limit = 100, 
+    const {
+      channel_username,
+      limit = 100,
       offset = 0,
-      download_media = false  // По умолчанию НЕ скачиваем
+      download_media = false, // По умолчанию НЕ скачиваем
     } = req.body;
 
     if (!channel_username) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         status: 'error',
-        error: 'channel_username required' 
+        error: 'channel_username required',
       });
     }
 
     const jobId = Date.now().toString();
-    
-    res.json({ 
-      status: 'processing', 
+
+    res.json({
+      status: 'processing',
       job_id: jobId,
       channel: channel_username,
       limit: limit,
       download_media: download_media,
-      message: 'Safe parsing started'
+      message: 'Safe parsing started',
     });
 
     parseChannel(channel_username, limit, offset, download_media, jobId)
-      .then(result => {
+      .then((result) => {
         console.log(`✓ Parsing completed:`, result);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error(`✗ Parsing failed:`, err.message);
       });
-
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       status: 'error',
-      error: error.message 
+      error: error.message,
     });
   }
 });
@@ -133,29 +130,28 @@ app.post('/api/parse', async (req, res) => {
 // Endpoint для проверки статуса парсинга
 app.get('/api/status/:job_id', async (req, res) => {
   const { job_id } = req.params;
-  
+
   try {
     const client = await pool.connect();
-    
+
     // Подсчитываем посты по job_id
-    const result = await client.query(
-      'SELECT COUNT(*) as count FROM posts WHERE job_id = $1',
-      [job_id]
-    );
-    
+    const result = await client.query('SELECT COUNT(*) as count FROM posts WHERE job_id = $1', [
+      job_id,
+    ]);
+
     client.release();
-    
+
     const count = parseInt(result.rows[0].count);
-    
-    res.json({ 
+
+    res.json({
       job_id,
       status: count > 0 ? 'completed' : 'processing',
-      posts_parsed: count
+      posts_parsed: count,
     });
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      error: error.message
+      error: error.message,
     });
   }
 });

@@ -1,4 +1,4 @@
-const { getDirectMediaUrl } = require('./getDirectMediaUrl')
+const { getDirectMediaUrl } = require('./getDirectMediaUrl');
 const { bigIntToString } = require('./utils');
 
 // Извлечение метаданных медиа + генерация публичной ссылки
@@ -13,7 +13,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
     duration: null,
     publicUrl: null,
     thumbnailUrl: null,
-    directUrl: null  // Прямая ссылка на файл
+    directUrl: null, // Прямая ссылка на файл
   };
 
   const postUrl = `https://t.me/${channelUsername}/${messageId}`;
@@ -28,10 +28,10 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
   if (media.photo && media.photo.id) {
     metadata.type = 'photo';
     metadata.fileId = bigIntToString(media.photo.id);
-    
+
     // Получаем прямую ссылку через веб-скрапинг
     metadata.directUrl = await getDirectMediaUrl(channelUsername, messageId);
-    
+
     if (media.photo.sizes && Array.isArray(media.photo.sizes) && media.photo.sizes.length > 0) {
       const largestSize = media.photo.sizes[media.photo.sizes.length - 1];
       metadata.width = largestSize.w;
@@ -43,13 +43,13 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
     metadata.fileId = bigIntToString(media.document.id);
     metadata.size = doc.size;
     metadata.mimeType = doc.mimeType;
-    
+
     // Получаем прямую ссылку
     metadata.directUrl = await getDirectMediaUrl(channelUsername, messageId);
-    
+
     if (doc.mimeType && doc.mimeType.startsWith('video/')) {
       metadata.type = 'video';
-      
+
       if (doc.attributes && Array.isArray(doc.attributes)) {
         for (const attr of doc.attributes) {
           if (attr.className === 'DocumentAttributeVideo') {
@@ -62,11 +62,9 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
           }
         }
       }
-    } 
-    else if (doc.mimeType && doc.mimeType.startsWith('image/')) {
+    } else if (doc.mimeType && doc.mimeType.startsWith('image/')) {
       metadata.type = 'image';
-    }
-    else if (doc.mimeType && doc.mimeType.startsWith('audio/')) {
+    } else if (doc.mimeType && doc.mimeType.startsWith('audio/')) {
       metadata.type = 'audio';
       if (doc.attributes && Array.isArray(doc.attributes)) {
         for (const attr of doc.attributes) {
@@ -77,8 +75,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
           }
         }
       }
-    }
-    else {
+    } else {
       metadata.type = 'document';
     }
   }
@@ -88,4 +85,4 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
   return metadata;
 }
 
-module.exports = {extractMediaMetadata}
+module.exports = { extractMediaMetadata };
