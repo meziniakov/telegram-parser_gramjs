@@ -28,34 +28,61 @@ async function getDirectMediaUrl(channelUsername, messageId) {
     // Формируем полный идентификатор поста: channel/messageId
     const postId = `${channelUsername}/${messageId}`;
 
-    // Находим конкретный пост по data-post атрибуту
-    const postElement = $(`.tgme_widget_message[data-post="${postId}"]`);
-
-    if (postElement.length === 0) {
-      console.warn(`Post ${postId} not found on page`);
-      return null;
-    }
-
-    console.log(`Found post element for ${postId}`);
-
-    // Ищем фото
-    const photoUrl = postElement.find('.tgme_widget_message_photo_wrap').attr('style');
-    if (photoUrl) {
-      const match = photoUrl.match(/url\('([^']+)'\)/);
-      if (match) {
-        return match[1]; // https://cdn4.telesco.pe/file/...
+    // Ищем медиа в сгруппированных элементах (альбомах) по href
+    // Фото в альбоме
+    let mediaElement = $(`.tgme_widget_message_photo_wrap[href*="/${messageId}?single"]`);
+    if (mediaElement.length > 0) {
+      const photoUrl = mediaElement.attr('style');
+      if (photoUrl) {
+        const match = photoUrl.match(/url\(['"']?([^'"')]+)['"']?\)/);
+        if (match) {
+          console.log(`Found grouped photo for ${postId}`);
+          return match[1];
+        }
       }
     }
 
-    // Ищем видео
+    // Видео в альбоме
+    mediaElement = $(`.tgme_widget_message_video_player[href*="/${messageId}?single"]`);
+    if (mediaElement.length > 0) {
+      const videoUrl = mediaElement.find('video').attr('src');
+      if (videoUrl) {
+        console.log(`Found grouped video for ${postId}`);
+        return videoUrl;
+      }
+    }
+
+    // Если не найдено в альбоме, ищем основной пост с data-post
+    const postElement = $(`.tgme_widget_message[data-post="${postId}"]`);
+
+    if (postElement.length === 0) {
+      console.warn(`Media ${postId} not found on page`);
+      return null;
+    }
+
+    console.log(`Found main post element for ${postId}`);
+
+    // Ищем фото в основном посте
+    const photoUrl = postElement.find('.tgme_widget_message_photo_wrap').attr('style');
+    if (photoUrl) {
+      const match = photoUrl.match(/url\(['"']?([^'"')]+)['"']?\)/);
+      if (match) {
+        console.log(`Found main photo for ${postId}`);
+        return match[1];
+      }
+    }
+
+    // Ищем видео в основном посте
     const videoUrl = postElement.find('.tgme_widget_message_video_player video').attr('src');
     if (videoUrl) {
-      return videoUrl; // https://cdn4.telesco.pe/file/...
+      console.log(`Found main video for ${postId}`);
+      return videoUrl;
     }
 
     // Ищем документ
     const docUrl = postElement.find('.tgme_widget_message_document_icon').closest('a').attr('href');
     if (docUrl) {
+      console.log(`Found document for ${postId}`);
       return docUrl;
     }
 

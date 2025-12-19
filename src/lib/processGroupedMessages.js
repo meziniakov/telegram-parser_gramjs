@@ -1,16 +1,27 @@
 const { savePost, saveMediaMetadata } = require('../database');
 const { extractMediaMetadata } = require('./extractMediaMetadata');
 const { detectAdvertising } = require('./detectAdvertising');
+const { uploadVideoToS3 } = require('./downloadLargeVideo');
 
 // Функция для обработки сгруппированных сообщений (альбом)
-async function processGroupedMessages(messages, cleanChannelName, jobId) {
+async function processGroupedMessages(
+  client,
+  messages,
+  cleanChannelName,
+  jobId,
+  downloadMedia = false
+) {
   // Сортируем по ID (первое сообщение содержит текст)
-  messages.sort((a, b) => a.id - b.id);
-
-  console.log(`all messages: ${JSON.stringify(messages)}`);
+  messages.sort((a, b) => b.id - a.id);
 
   const firstMsg = messages[0];
   const isAd = detectAdvertising(firstMsg.message);
+
+  // Пропускаем весь альбом, если первое сообщение - реклама
+  if(isAd) {
+    return { savedPosts: 0, savedMedia: 0 };
+  }
+
   const messageDate =
     firstMsg.date instanceof Date ? firstMsg.date : new Date(firstMsg.date * 1000);
 
@@ -41,11 +52,45 @@ async function processGroupedMessages(messages, cleanChannelName, jobId) {
       try {
         console.log(`[${jobId}] Processing media from message ${msg.id} in group`);
 
-        const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
+        const mediaMetadata = await extractMediaMetadata(
+          client,
+          msg.media,
+          msg.id,
+          cleanChannelName
+        );
 
         if (!mediaMetadata.fileId) {
           console.log(`[${jobId}] Skipping media for ${msg.id} - no file_id`);
           continue;
+        }
+
+        let s3Url = null;
+
+        // ЗАГРУЗКА ВИДЕО В S3
+        if (downloadMedia && mediaMetadata.type === 'video') {
+          try {
+            console.log(`[${jobId}] Downloading video from message ${msg.id}...`);
+
+            const buffer = await client.downloadMedia(msg.media, {
+              progressCallback: (downloaded, total) => {
+                const percent = ((downloaded / total) * 100).toFixed(1);
+                if (downloaded % (1024 * 1024 * 5) === 0) {
+                  console.log(`[${jobId}] Download progress: ${percent}%`);
+                }
+              },
+            });
+
+            console.log(`[${jobId}] ✓ Downloaded ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+
+            // Загрузка видео
+            const result = await uploadVideoToS3(client, cleanChannelName, msg.id);
+            s3Url = result ? result.url : null;
+            // s3Url = await uploadToS3(buffer, cleanChannelName, msg.id, mediaMetadata.mimeType);
+
+            console.log(`[${jobId}] ✓ Uploaded to S3: ${s3Url}`);
+          } catch (downloadError) {
+            console.error(`[${jobId}] Failed to download/upload video:`, downloadError.message);
+          }
         }
 
         // Сохраняем медиа с привязкой к ОДНОМУ посту
@@ -59,9 +104,10 @@ async function processGroupedMessages(messages, cleanChannelName, jobId) {
           height: mediaMetadata.height,
           duration: mediaMetadata.duration,
           file_url: mediaMetadata.publicUrl,
-          direct_url: mediaMetadata.directUrl,
+          direct_url: s3Url || mediaMetadata.directUrl,
           thumbnail_url: mediaMetadata.thumbnailUrl,
           media_order: mediaOrder++, // Порядок медиа в группе
+          s3_url: s3Url,
         });
 
         savedMedia++;

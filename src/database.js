@@ -10,10 +10,10 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   ssl: false,
   max: 20,
-   idleTimeoutMillis: 60000,           // Увеличено до 60 сек
-  connectionTimeoutMillis: 30000,     // Увеличено до 30 сек
-  statement_timeout: 30000,           // Таймаут запроса 30 сек
-  query_timeout: 30000,               // Таймаут запроса 30 сек
+  idleTimeoutMillis: 60000, // Увеличено до 60 сек
+  connectionTimeoutMillis: 30000, // Увеличено до 30 сек
+  statement_timeout: 30000, // Таймаут запроса 30 сек
+  query_timeout: 30000, // Таймаут запроса 30 сек
 });
 
 async function savePost(postData) {
@@ -24,7 +24,7 @@ async function savePost(postData) {
     SET views = EXCLUDED.views, text = EXCLUDED.text
     RETURNING id
   `;
-  
+
   try {
     const result = await pool.query(query, [
       postData.channel_username,
@@ -33,9 +33,11 @@ async function savePost(postData) {
       postData.date,
       postData.views,
       postData.is_ad,
-      postData.job_id
+      postData.job_id,
     ]);
     return result.rows[0].id;
+
+    // return JSON.stringify({ postData }); // Заглушка для примера
   } catch (error) {
     console.error('Error saving post:', error.message);
     throw error;
@@ -43,41 +45,67 @@ async function savePost(postData) {
 }
 
 async function saveMediaMetadata(mediaData, retries = 3) {
-  // Безопасная конвертация file_id
   let fileId = null;
-  
+
   if (mediaData.file_id !== null && mediaData.file_id !== undefined) {
-    // Если это объект BigInt из Telegram
     if (typeof mediaData.file_id === 'object' && mediaData.file_id.toString) {
       fileId = mediaData.file_id.toString();
-    }
-    // Если это уже строка
-    else if (typeof mediaData.file_id === 'string') {
+    } else if (typeof mediaData.file_id === 'string') {
       fileId = mediaData.file_id;
-    }
-    // Если это число
-    else if (typeof mediaData.file_id === 'number' || typeof mediaData.file_id === 'bigint') {
-      fileId = String(mediaData.file_id);
-    }
-    // Fallback
-    else {
+    } else {
       fileId = String(mediaData.file_id);
     }
   }
-  
-  // Убедитесь что file_size это число или null
+
   const fileSize = mediaData.file_size ? parseInt(mediaData.file_size) : null;
-  
+  const s3Url = mediaData.s3_url || null;
+
+  // ПРОВЕРКА: если нет file_id, не пытаемся использовать ON CONFLICT
+  if (!fileId) {
+    console.warn('No file_id provided, using simple INSERT');
+
+    const simpleQuery = `
+      INSERT INTO media_files (
+        post_id, media_type, file_url, direct_url, file_size, 
+        mime_type, width, height, duration, thumbnail_url, media_order, s3_url
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id
+    `;
+
+    try {
+      const result = await pool.query(simpleQuery, [
+        mediaData.post_id,
+        mediaData.media_type || 'unknown',
+        mediaData.file_url,
+        mediaData.direct_url,
+        fileSize,
+        mediaData.mime_type,
+        mediaData.width,
+        mediaData.height,
+        mediaData.duration,
+        mediaData.thumbnail_url,
+        mediaData.media_order || 0,
+        s3Url,
+      ]);
+
+      return result.rows.length > 0 ? result.rows[0].id : null;
+    } catch (error) {
+      console.error('Error saving media without file_id:', error.message);
+      return null;
+    }
+  }
+
+  // Основной query с ON CONFLICT
   const query = `
     INSERT INTO media_files (
       post_id, media_type, file_id, file_url, direct_url, file_size, 
-      mime_type, width, height, duration, thumbnail_url
+      mime_type, width, height, duration, thumbnail_url, media_order, s3_url
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    ON CONFLICT (post_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    ON CONFLICT (post_id, file_id)
     DO UPDATE SET 
       media_type = EXCLUDED.media_type,
-      file_id = EXCLUDED.file_id,
       file_url = EXCLUDED.file_url,
       direct_url = EXCLUDED.direct_url,
       file_size = EXCLUDED.file_size,
@@ -85,28 +113,31 @@ async function saveMediaMetadata(mediaData, retries = 3) {
       width = EXCLUDED.width,
       height = EXCLUDED.height,
       duration = EXCLUDED.duration,
-      thumbnail_url = EXCLUDED.thumbnail_url
+      thumbnail_url = EXCLUDED.thumbnail_url,
+      media_order = EXCLUDED.media_order,
+      s3_url = COALESCE(EXCLUDED.s3_url, media_files.s3_url)
     RETURNING id
   `;
-  
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const result = await pool.query(query, [
         mediaData.post_id,
         mediaData.media_type || 'unknown',
-        fileId,  // Правильно сконвертированный file_id
+        fileId,
         mediaData.file_url,
         mediaData.direct_url,
-        fileSize,  // Убедились что это число
+        fileSize,
         mediaData.mime_type,
         mediaData.width,
         mediaData.height,
         mediaData.duration,
-        mediaData.thumbnail_url
+        mediaData.thumbnail_url,
+        mediaData.media_order || 0,
+        s3Url,
       ]);
-      
+
       return result.rows.length > 0 ? result.rows[0].id : null;
-      
     } catch (error) {
       console.error(`Error saving media (attempt ${attempt}/${retries}):`, error.message);
       console.error(`Media data:`, {
@@ -114,26 +145,98 @@ async function saveMediaMetadata(mediaData, retries = 3) {
         file_id: fileId,
         file_id_type: typeof fileId,
         file_size: fileSize,
-        file_size_type: typeof fileSize
+        file_size_type: typeof fileSize,
+        s3_url: s3Url,
       });
-      
-      if (
-        error.message.includes('timeout') || 
-        error.message.includes('Connection terminated')
-      ) {
+
+      // Если ошибка constraint - попробуем без ON CONFLICT
+      if (error.message.includes('constraint') || error.message.includes('ON CONFLICT')) {
+        console.warn(`Constraint issue detected, trying UPDATE/INSERT separately...`);
+
+        try {
+          // Сначала пробуем UPDATE
+          const updateQuery = `
+            UPDATE media_files 
+            SET media_type = $2, file_url = $3, direct_url = $4,
+                file_size = $5, mime_type = $6, width = $7, height = $8,
+                duration = $9, thumbnail_url = $10, media_order = $11, 
+                s3_url = COALESCE($12, media_files.s3_url)
+            WHERE post_id = $1 AND file_id = $13
+            RETURNING id
+          `;
+
+          const updateResult = await pool.query(updateQuery, [
+            mediaData.post_id,
+            mediaData.media_type || 'unknown',
+            mediaData.file_url,
+            mediaData.direct_url,
+            fileSize,
+            mediaData.mime_type,
+            mediaData.width,
+            mediaData.height,
+            mediaData.duration,
+            mediaData.thumbnail_url,
+            mediaData.media_order || 0,
+            s3Url,
+            fileId,
+          ]);
+
+          if (updateResult.rows.length > 0) {
+            console.log('Updated existing media record');
+            return updateResult.rows[0].id;
+          }
+
+          // Если UPDATE не обновил ничего, делаем INSERT
+          const insertQuery = `
+            INSERT INTO media_files (
+              post_id, media_type, file_id, file_url, direct_url, file_size, 
+              mime_type, width, height, duration, thumbnail_url, media_order, s3_url
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING id
+          `;
+
+          const insertResult = await pool.query(insertQuery, [
+            mediaData.post_id,
+            mediaData.media_type || 'unknown',
+            fileId,
+            mediaData.file_url,
+            mediaData.direct_url,
+            fileSize,
+            mediaData.mime_type,
+            mediaData.width,
+            mediaData.height,
+            mediaData.duration,
+            mediaData.thumbnail_url,
+            mediaData.media_order || 0,
+            s3Url,
+          ]);
+
+          console.log('Inserted new media record');
+          return insertResult.rows.length > 0 ? insertResult.rows[0].id : null;
+        } catch (fallbackError) {
+          console.error('Fallback UPDATE/INSERT also failed:', fallbackError.message);
+          return null;
+        }
+      }
+
+      if (error.message.includes('timeout') || error.message.includes('Connection terminated')) {
         if (attempt < retries) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          console.log(`Retrying in 2 seconds... (${attempt}/${retries})`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           continue;
         }
       }
-      
+
       return null;
     }
   }
+
+  return null;
 }
 
-module.exports = { 
-  pool, 
-  savePost, 
-  saveMediaMetadata 
+module.exports = {
+  pool,
+  savePost,
+  saveMediaMetadata,
 };
