@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { translit } = require('./lib/translit');
 
 const { Pool } = require('pg');
 
@@ -17,9 +18,13 @@ const pool = new Pool({
 });
 
 async function savePost(postData) {
+  const regionName = postData.hashtags[0].replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
+  const { regionId } = await getRegionIdByRegionName(regionName);
+  console.log('regionId', regionId, 'for regionName', regionName);
+
   const query = `
-    INSERT INTO posts (channel_username, message_id, text, date, views, is_ad, job_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO posts (channel_username, title, description, latitude, longitude, "regionId", author, "authorUrl", "mapUrl", status, "externalId", "message_id", text, date, views, is_ad, job_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT (message_id) DO UPDATE 
     SET views = EXCLUDED.views, text = EXCLUDED.text
     RETURNING id
@@ -28,6 +33,16 @@ async function savePost(postData) {
   try {
     const result = await pool.query(query, [
       postData.channel_username,
+      postData.title,
+      postData.description,
+      postData.latitude,
+      postData.longitude,
+      regionId,
+      postData.author,
+      postData.author_url,
+      postData.mapUrl,
+      postData.status,
+      postData.externalId,
       postData.message_id,
       postData.text,
       postData.date,
@@ -65,11 +80,11 @@ async function saveMediaMetadata(mediaData, retries = 3) {
     console.warn('No file_id provided, using simple INSERT');
 
     const simpleQuery = `
-      INSERT INTO media_files (
-        post_id, media_type, file_url, direct_url, file_size, 
-        mime_type, width, height, duration, thumbnail_url, media_order, s3_url
+      INSERT INTO media (
+        post_id, media_type, file_url, direct_url, file_size,
+        mime_type, width, height, duration, thumbnail_url, media_order, s3_url, image_author, image_author_url
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING id
     `;
 
@@ -87,6 +102,8 @@ async function saveMediaMetadata(mediaData, retries = 3) {
         mediaData.thumbnail_url,
         mediaData.media_order || 0,
         s3Url,
+        mediaData.image_author,
+        mediaData.image_author_url,
       ]);
 
       return result.rows.length > 0 ? result.rows[0].id : null;
@@ -98,11 +115,11 @@ async function saveMediaMetadata(mediaData, retries = 3) {
 
   // Основной query с ON CONFLICT
   const query = `
-    INSERT INTO media_files (
+    INSERT INTO media (
       post_id, media_type, file_id, file_url, direct_url, file_size, 
-      mime_type, width, height, duration, thumbnail_url, media_order, s3_url
+      mime_type, width, height, duration, thumbnail_url, media_order, s3_url, image_author, image_author_url
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     ON CONFLICT (post_id, file_id)
     DO UPDATE SET 
       media_type = EXCLUDED.media_type,
@@ -115,7 +132,9 @@ async function saveMediaMetadata(mediaData, retries = 3) {
       duration = EXCLUDED.duration,
       thumbnail_url = EXCLUDED.thumbnail_url,
       media_order = EXCLUDED.media_order,
-      s3_url = COALESCE(EXCLUDED.s3_url, media_files.s3_url)
+      s3_url = COALESCE(EXCLUDED.s3_url, media.s3_url),
+      image_author = EXCLUDED.image_author,
+      image_author_url = EXCLUDED.image_author_url
     RETURNING id
   `;
 
@@ -135,11 +154,13 @@ async function saveMediaMetadata(mediaData, retries = 3) {
         mediaData.thumbnail_url,
         mediaData.media_order || 0,
         s3Url,
+        mediaData.image_author,
+        mediaData.image_author_url,
       ]);
 
       return result.rows.length > 0 ? result.rows[0].id : null;
     } catch (error) {
-      console.error(`Error saving media (attempt ${attempt}/${retries}):`, error.message);
+      console.error(`Error saving media (attempt ${attempt}/${retries}):`, error);
       console.error(`Media data:`, {
         post_id: mediaData.post_id,
         file_id: fileId,
@@ -156,11 +177,11 @@ async function saveMediaMetadata(mediaData, retries = 3) {
         try {
           // Сначала пробуем UPDATE
           const updateQuery = `
-            UPDATE media_files 
+            UPDATE media 
             SET media_type = $2, file_url = $3, direct_url = $4,
                 file_size = $5, mime_type = $6, width = $7, height = $8,
                 duration = $9, thumbnail_url = $10, media_order = $11, 
-                s3_url = COALESCE($12, media_files.s3_url)
+                s3_url = COALESCE($12, media.s3_url)
             WHERE post_id = $1 AND file_id = $13
             RETURNING id
           `;
@@ -188,7 +209,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
 
           // Если UPDATE не обновил ничего, делаем INSERT
           const insertQuery = `
-            INSERT INTO media_files (
+            INSERT INTO media (
               post_id, media_type, file_id, file_url, direct_url, file_size, 
               mime_type, width, height, duration, thumbnail_url, media_order, s3_url
             )
@@ -233,6 +254,38 @@ async function saveMediaMetadata(mediaData, retries = 3) {
   }
 
   return null;
+}
+
+async function getRegionIdByRegionName(regionName, coutryName = 'Россия') {
+  if (!regionName) {
+    return {
+      error: 'Region name is required',
+    };
+  }
+  try {
+    const query = `SELECT id FROM regions WHERE name = $1 LIMIT 1`;
+    const res = await pool.query(query, [regionName]);
+    console.log('getRegionIdByRegionName', regionName, coutryName, 'found rows:', res.rows.length);
+    if (res.rows.length > 0) {
+      return { regionId: res.rows[0].id };
+    }
+
+    // Если региона нет, создаем новый
+    const insertQuery = `
+      INSERT INTO regions (name, slug, "countryId")
+      VALUES ($1, $2, (SELECT id FROM countries WHERE name = $3 LIMIT 1))
+      RETURNING id
+    `;
+    const slug = translit(regionName);
+
+    const insertRes = await pool.query(insertQuery, [regionName, slug, coutryName]);
+    console.log('Inserted new region:', regionName, 'with id:', insertRes.rows[0].id);
+
+    return { regionId: insertRes.rows[0].id };
+  } catch (e) {
+    console.error('Error in getRegionIdByRegionName:', e.message);
+    return { error: e };
+  }
 }
 
 module.exports = {

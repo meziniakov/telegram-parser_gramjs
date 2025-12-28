@@ -273,7 +273,6 @@ async function parseChannelResumable(channelUsername, options = {}) {
       status: 'failed',
       lastError: error.message,
     });
-
   } finally {
     // Отключаемся при завершении
     try {
@@ -284,7 +283,7 @@ async function parseChannelResumable(channelUsername, options = {}) {
     } catch (e) {
       console.error(`[${jobId}] Error during cleanup:`, e.message);
     }
-    
+
     // ВАЖНО: явно завершаем процесс
     process.exit(0);
   }
@@ -335,7 +334,7 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
           offsetId: offset + batch * batchSize,
         });
 
-        console.log(`[${jobId}] ✓ Total messages: ${JSON.stringify({ messages })}`);
+        // console.log(`[${jobId}] ✓ Total messages: ${JSON.stringify({ messages })}`);
 
         totalMessages.push(...messages);
         console.log(`[${jobId}] ✓ Batch ${batch + 1}: ${messages.length} messages`);
@@ -458,6 +457,7 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
 
         await sleep(randomDelay(500, 1500));
       } catch (error) {
+        console.log('error', error);
         console.error(`[${jobId}] Error processing group ${groupId}:`, error.message);
       }
     }
@@ -471,9 +471,8 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
     };
   } catch (error) {
     console.error(`[${jobId}] ❌ Fatal error:`, error.message);
-
   } finally {
-        // Отключаемся при завершении
+    // Отключаемся при завершении
     try {
       await waitForActiveUploads(30000); // если используете S3
       await cleanupS3Client(); // если используете S3
@@ -482,7 +481,7 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
     } catch (e) {
       console.error(`[${jobId}] Error during cleanup:`, e.message);
     }
-    
+
     // ВАЖНО: явно завершаем процесс
     process.exit(0);
   }

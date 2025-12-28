@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const input = require('input');

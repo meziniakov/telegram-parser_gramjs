@@ -71,7 +71,7 @@ async function waitForActiveUploads(timeoutMs = 30000) {
       console.warn(`Timeout waiting for uploads. ${activeUploads} uploads still active.`);
       return false;
     }
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   console.log('All uploads completed');
@@ -92,5 +92,5 @@ module.exports = {
   getS3Client,
   cleanupS3Client,
   getS3Config,
-  waitForActiveUploads
+  waitForActiveUploads,
 };

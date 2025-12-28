@@ -14,14 +14,35 @@ const s3Config = getS3Config();
  * @param {string} mimeType - MIME тип файла
  * @returns {Promise<string>} - URL загруженного файла
  */
-async function uploadToS3(buffer, channelUsername, messageId, mimeType) {
+async function uploadToS3(buffer, channelUsername, messageId, media) {
   try {
     // Определяем расширение файла
-    const extension = getExtensionFromMimeType(mimeType);
+    // const extension = getExtensionFromMimeType(mimeType);
+
+    // Определяем Content-Type
+    // const contentType = mimeType || 'application/octet-stream';
+
+    let [mimeType, ext] = '';
+    if (media?.className?.includes('Photo')) {
+      mimeType = 'image/jpeg';
+      ext = '.jpg';
+    } else if (media?.className.includes('Document')) {
+      ext = '.mp4';
+      mimeType = 'application/mp4';
+    } else if (media?.className.includes('Video')) {
+      ext = '.mp4';
+      mimeType = 'video/mp4';
+    } else if (media?.className.includes('Audio')) {
+      ext = '.mp3';
+      mimeType = 'audio/mpeg';
+    } else {
+      ext = '.bin';
+      mimeType = 'application/octet-stream';
+    }
 
     // Генерируем уникальное имя файла
     const hash = crypto.createHash('md5').update(buffer).digest('hex');
-    const filename = `${messageId}_${hash}${extension}`;
+    const filename = `${messageId}_${hash}${ext}`;
 
     // Структура папок: channel/year/month/filename
     const now = new Date();
@@ -29,18 +50,15 @@ async function uploadToS3(buffer, channelUsername, messageId, mimeType) {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const key = `${channelUsername}/${year}/${month}/${filename}`;
 
-    // Определяем Content-Type
-    const contentType = mimeType || 'application/octet-stream';
-
     console.log(`Uploading to S3: ${key} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
     const command = new PutObjectCommand({
       Bucket: s3Config.bucket,
       Key: key,
       Body: buffer,
-      ContentType: contentType,
+      ContentType: mimeType,
       // Делаем файл публично доступным (опционально)
-      // ACL: 'public-read',
+      ACL: 'public-read',
       // Или используйте signed URLs если нужна приватность
     });
 
@@ -49,7 +67,7 @@ async function uploadToS3(buffer, channelUsername, messageId, mimeType) {
     await s3Client.send(command);
 
     // Формируем публичный URL
-    const publicUrl = `${s3Config.endpoint}/${s3Config.bucket}/${key}`;
+    const publicUrl = `https://${s3Config.bucket}.s3.cloud.ru/${key}`;
 
     console.log(`✓ Uploaded successfully: ${publicUrl}`);
 
@@ -64,6 +82,7 @@ async function uploadToS3(buffer, channelUsername, messageId, mimeType) {
  * Определение расширения файла по MIME типу
  */
 function getExtensionFromMimeType(mimeType) {
+  console.log('Determining extension for MIME type:', mimeType);
   if (!mimeType) return '';
 
   const mimeMap = {

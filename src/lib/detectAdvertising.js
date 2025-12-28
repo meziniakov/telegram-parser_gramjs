@@ -28,10 +28,7 @@ function detectAdvertising(text) {
   // ];
 
   // Целевые фразы, наличие которых указывает на отсутствие рекламы
-  const targetedPhrases = [
-    'координаты',
-    'место на карте',
-  ]
+  const targetedPhrases = ['координаты', 'место на карте'];
 
   const lowerText = text.toLowerCase();
   // return adKeywords.some((keyword) => lowerText.includes(keyword));

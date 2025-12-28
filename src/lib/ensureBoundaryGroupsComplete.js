@@ -5,7 +5,7 @@ async function ensureBoundaryGroupsComplete(client, channelUsername, messages, j
   const grouped = messages.filter((m) => m.groupedId);
 
   console.log(`All messages count: ${messages.length}, grouped count: ${grouped.length}`);
-  console.log(`View text of grouped messages: ${grouped.map(m => m.message).join(' | ')}`);
+  // console.log(`View text of grouped messages: ${grouped.map((m) => m.message).join(' | ')}`);
 
   if (grouped.length === 0) {
     return [];

@@ -2,6 +2,8 @@ const { savePost, saveMediaMetadata } = require('../database');
 const { extractMediaMetadata } = require('./extractMediaMetadata');
 const { detectAdvertising } = require('./detectAdvertising');
 const { uploadVideoToS3 } = require('./downloadLargeVideo');
+const { parseTelegramPost } = require('./utils');
+const { uploadToS3 } = require('../storage');
 
 // Функция для обработки сгруппированных сообщений (альбом)
 async function processGroupedMessages(
@@ -18,7 +20,7 @@ async function processGroupedMessages(
   const isAd = detectAdvertising(firstMsg.message);
 
   // Пропускаем весь альбом, если первое сообщение - реклама
-  if(isAd) {
+  if (isAd) {
     return { savedPosts: 0, savedMedia: 0 };
   }
 
@@ -26,13 +28,28 @@ async function processGroupedMessages(
     firstMsg.date instanceof Date ? firstMsg.date : new Date(firstMsg.date * 1000);
 
   console.log(`[${jobId}] Processing grouped messages: ${messages.map((m) => m.id).join(', ')}`);
-  console.log(
-    `[${jobId}] Album text from first message ${firstMsg.id}: "${firstMsg.message || '(no text)'}"`
-  );
+  // console.log(
+  //   `[${jobId}] Album text from first message ${firstMsg.id}: "${firstMsg.message || '(no text)'}"`
+  // );
+
+  const parsedPost = parseTelegramPost(firstMsg.message || '', firstMsg.entities || []);
+
+  console.log(`Parsed grouped post: `, parsedPost);
+  // return { savedPosts: 1, savedMedia };
 
   // Сохраняем ОДИН пост для всего альбома (используем ID первого сообщения)
   const postId = await savePost({
     channel_username: cleanChannelName,
+    title: parsedPost.title,
+    description: parsedPost.description,
+    latitude: parsedPost.coordinates.lat,
+    longitude: parsedPost.coordinates.lon,
+    hashtags: parsedPost.hashtags,
+    author: parsedPost.author,
+    author_url: parsedPost.authorUrl,
+    mapUrl: parsedPost.mapUrl,
+    status: 'pending',
+    externalId: firstMsg.id,
     message_id: firstMsg.id,
     text: firstMsg.message || '', // Текст берем из первого сообщения
     date: messageDate,
@@ -52,12 +69,7 @@ async function processGroupedMessages(
       try {
         console.log(`[${jobId}] Processing media from message ${msg.id} in group`);
 
-        const mediaMetadata = await extractMediaMetadata(
-          client,
-          msg.media,
-          msg.id,
-          cleanChannelName
-        );
+        const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
 
         if (!mediaMetadata.fileId) {
           console.log(`[${jobId}] Skipping media for ${msg.id} - no file_id`);
@@ -66,19 +78,19 @@ async function processGroupedMessages(
 
         let s3Url = null;
 
+        const buffer = await client.downloadMedia(msg.media, {
+          progressCallback: (downloaded, total) => {
+            const percent = ((downloaded / total) * 100).toFixed(1);
+            if (downloaded % (1024 * 1024 * 5) === 0) {
+              console.log(`[${jobId}] Download progress: ${percent}%`);
+            }
+          },
+        });
+
         // ЗАГРУЗКА ВИДЕО В S3
         if (downloadMedia && mediaMetadata.type === 'video') {
           try {
             console.log(`[${jobId}] Downloading video from message ${msg.id}...`);
-
-            const buffer = await client.downloadMedia(msg.media, {
-              progressCallback: (downloaded, total) => {
-                const percent = ((downloaded / total) * 100).toFixed(1);
-                if (downloaded % (1024 * 1024 * 5) === 0) {
-                  console.log(`[${jobId}] Download progress: ${percent}%`);
-                }
-              },
-            });
 
             console.log(`[${jobId}] ✓ Downloaded ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
 
@@ -91,6 +103,8 @@ async function processGroupedMessages(
           } catch (downloadError) {
             console.error(`[${jobId}] Failed to download/upload video:`, downloadError.message);
           }
+        } else {
+          s3Url = await uploadToS3(buffer, cleanChannelName, msg.id, msg.media);
         }
 
         // Сохраняем медиа с привязкой к ОДНОМУ посту
@@ -108,6 +122,8 @@ async function processGroupedMessages(
           thumbnail_url: mediaMetadata.thumbnailUrl,
           media_order: mediaOrder++, // Порядок медиа в группе
           s3_url: s3Url,
+          image_author: parsedPost.author,
+          image_author_url: parsedPost.authorUrl,
         });
 
         savedMedia++;

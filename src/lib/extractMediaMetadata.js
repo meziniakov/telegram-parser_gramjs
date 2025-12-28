@@ -2,7 +2,7 @@ const { getDirectMediaUrl } = require('./getDirectMediaUrl');
 const { bigIntToString } = require('./utils');
 
 // Извлечение метаданных медиа + генерация публичной ссылки
-async function extractMediaMetadata(client, media, messageId, channelUsername) {
+async function extractMediaMetadata(media, messageId, channelUsername) {
   const metadata = {
     type: 'unknown',
     fileId: null,
@@ -24,6 +24,8 @@ async function extractMediaMetadata(client, media, messageId, channelUsername) {
     console.warn(`No media object for message ${messageId}`);
     return metadata;
   }
+
+  // console.log(`Extracting metadata for message ${messageId} with media type:`, Object.keys(media));
 
   if (media.photo && media.photo.id) {
     metadata.type = 'photo';
