@@ -5,6 +5,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
+RUN cp -r /app /app/shared-scripts/ || true
+
 COPY . .
 
 EXPOSE 3000
