@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-RUN cp -r /app /app/shared-scripts/ || true
+# RUN cp -r /app /app/shared-scripts/ || true
 
 COPY . .
 
