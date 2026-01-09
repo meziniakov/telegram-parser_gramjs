@@ -84,7 +84,7 @@ app.post('/api/parse/start', async (req, res) => {
     // Запускаем парсинг асинхронно
     parseChannelResumable(channel, {
       limit,
-      offset: 0,
+      offset: startFromMessageId || offset,
       downloadMedia,
       fetchDirectUrls: true,
       jobId: job.job_id,
