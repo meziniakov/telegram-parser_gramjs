@@ -81,7 +81,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
 
     const simpleQuery = `
       INSERT INTO media (
-        post_id, media_type, file_url, direct_url, file_size,
+        post_id, type, file_url, direct_url, file_size,
         mime_type, width, height, duration, thumbnail_url, media_order, s3_url, image_author, image_author_url
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -91,7 +91,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
     try {
       const result = await pool.query(simpleQuery, [
         mediaData.post_id,
-        mediaData.media_type || 'unknown',
+        mediaData.type || 'unknown',
         mediaData.file_url,
         mediaData.direct_url,
         fileSize,
@@ -116,13 +116,13 @@ async function saveMediaMetadata(mediaData, retries = 3) {
   // Основной query с ON CONFLICT
   const query = `
     INSERT INTO media (
-      post_id, media_type, file_id, file_url, direct_url, file_size, 
+      post_id, type, file_id, file_url, direct_url, file_size, 
       mime_type, width, height, duration, thumbnail_url, media_order, s3_url, image_author, image_author_url
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     ON CONFLICT (post_id, file_id)
     DO UPDATE SET 
-      media_type = EXCLUDED.media_type,
+      type = EXCLUDED.type,
       file_url = EXCLUDED.file_url,
       direct_url = EXCLUDED.direct_url,
       file_size = EXCLUDED.file_size,
@@ -142,7 +142,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
     try {
       const result = await pool.query(query, [
         mediaData.post_id,
-        mediaData.media_type || 'unknown',
+        mediaData.type || 'unknown',
         fileId,
         mediaData.file_url,
         mediaData.direct_url,
@@ -178,7 +178,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
           // Сначала пробуем UPDATE
           const updateQuery = `
             UPDATE media 
-            SET media_type = $2, file_url = $3, direct_url = $4,
+            SET type = $2, file_url = $3, direct_url = $4,
                 file_size = $5, mime_type = $6, width = $7, height = $8,
                 duration = $9, thumbnail_url = $10, media_order = $11, 
                 s3_url = COALESCE($12, media.s3_url)
@@ -188,7 +188,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
 
           const updateResult = await pool.query(updateQuery, [
             mediaData.post_id,
-            mediaData.media_type || 'unknown',
+            mediaData.type || 'unknown',
             mediaData.file_url,
             mediaData.direct_url,
             fileSize,
@@ -210,7 +210,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
           // Если UPDATE не обновил ничего, делаем INSERT
           const insertQuery = `
             INSERT INTO media (
-              post_id, media_type, file_id, file_url, direct_url, file_size, 
+              post_id, type, file_id, file_url, direct_url, file_size, 
               mime_type, width, height, duration, thumbnail_url, media_order, s3_url
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -219,7 +219,7 @@ async function saveMediaMetadata(mediaData, retries = 3) {
 
           const insertResult = await pool.query(insertQuery, [
             mediaData.post_id,
-            mediaData.media_type || 'unknown',
+            mediaData.type || 'unknown',
             fileId,
             mediaData.file_url,
             mediaData.direct_url,

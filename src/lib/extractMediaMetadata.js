@@ -28,7 +28,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
   // console.log(`Extracting metadata for message ${messageId} with media type:`, Object.keys(media));
 
   if (media.photo && media.photo.id) {
-    metadata.type = 'photo';
+    metadata.type = 'IMAGE';
     metadata.fileId = bigIntToString(media.photo.id);
 
     // Получаем прямую ссылку через веб-скрапинг
@@ -50,7 +50,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
     metadata.directUrl = await getDirectMediaUrl(channelUsername, messageId);
 
     if (doc.mimeType && doc.mimeType.startsWith('video/')) {
-      metadata.type = 'video';
+      metadata.type = 'VIDEO';
 
       if (doc.attributes && Array.isArray(doc.attributes)) {
         for (const attr of doc.attributes) {
@@ -65,7 +65,7 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
         }
       }
     } else if (doc.mimeType && doc.mimeType.startsWith('image/')) {
-      metadata.type = 'image';
+      metadata.type = 'IMAGE';
     } else if (doc.mimeType && doc.mimeType.startsWith('audio/')) {
       metadata.type = 'audio';
       if (doc.attributes && Array.isArray(doc.attributes)) {

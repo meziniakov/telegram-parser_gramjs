@@ -110,7 +110,7 @@ async function processGroupedMessages(
         // Сохраняем медиа с привязкой к ОДНОМУ посту
         await saveMediaMetadata({
           post_id: postId, // Все медиа привязываем к одному посту
-          media_type: mediaMetadata.type,
+          type: mediaMetadata.type,
           file_id: mediaMetadata.fileId,
           file_size: mediaMetadata.size,
           mime_type: mediaMetadata.mimeType,

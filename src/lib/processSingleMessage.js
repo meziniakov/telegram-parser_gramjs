@@ -85,7 +85,7 @@ async function processSingleMessage(client, msg, cleanChannelName, jobId, downlo
 
         await saveMediaMetadata({
           post_id: postId,
-          media_type: mediaMetadata.type,
+          type: mediaMetadata.type,
           file_id: mediaMetadata.fileId,
           file_size: mediaMetadata.size,
           image_author: parsedPost.author,
