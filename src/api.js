@@ -45,6 +45,7 @@ app.post('/api/parse/start', async (req, res) => {
       limit = 100,
       batchSize = 50,
       downloadMedia = false,
+      offset = 0,
       proxy = null,
       resume = false,
     } = req.body;
@@ -67,13 +68,15 @@ app.post('/api/parse/start', async (req, res) => {
         job = await createParsingJob(channel, {
           batchSize,
           downloadMedia,
-          metadata: { proxy },
+          startFromId: offset,
+          metadata: { proxy},
         });
       }
     } else {
       job = await createParsingJob(channel, {
         batchSize,
         downloadMedia,
+        startFromId: offset,
         metadata: { proxy },
       });
     }
