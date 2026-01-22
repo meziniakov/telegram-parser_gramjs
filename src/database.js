@@ -20,7 +20,6 @@ const pool = new Pool({
 async function savePost(postData) {
   const regionName = postData.hashtags[0].replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
   const { regionId } = await getRegionIdByRegionName(regionName);
-  console.log('regionId', regionId, 'for regionName', regionName);
 
   const query = `
     INSERT INTO posts (channel_username, title, description, latitude, longitude, "regionId", author, "authorUrl", "mapUrl", status, "externalId", "message_id", text, date, views, is_ad, job_id)
@@ -50,7 +49,18 @@ async function savePost(postData) {
       postData.is_ad,
       postData.job_id,
     ]);
-    return result.rows[0].id;
+
+    const postId = result.rows[0].id;
+
+    // 2. Сохраняем теги
+    if (postData.hashtags && postData.hashtags.length > 0) {
+      await savePostTags(postId, postData.hashtags);
+    }
+
+    await pool.query('COMMIT');
+    console.log(`💾 Сохранён пост ${postId} с ${postData.tags?.length || 0} тегами`);
+
+    return postId;
 
     // return JSON.stringify({ postData }); // Заглушка для примера
   } catch (error) {
@@ -254,6 +264,48 @@ async function saveMediaMetadata(mediaData, retries = 3) {
   }
 
   return null;
+}
+
+/**
+ * Сохранить теги поста
+ */
+async function savePostTags(postId, tags) {
+  try {
+    await pool.query('BEGIN');
+
+    const tagIds = [];
+
+    // 1. Создаём/получаем теги
+    for (const tagName of tags) {
+      const result = await pool.query(
+        `INSERT INTO tags (name, slug) 
+         VALUES ($1, $2) 
+         ON CONFLICT (slug) 
+        //  DO UPDATE SET usage_count = tags.usage_count + 1, last_seen = NOW()
+         RETURNING id`,
+        [tagName, tagName]
+      );
+      tagIds.push(result.rows[0].id);
+    }
+
+    // 2. Связываем пост с тегами
+    for (const tagId of tagIds) {
+      await pool.query(
+        `INSERT INTO _PostTags (A, B) 
+         VALUES ($1, $2) 
+         ON CONFLICT DO NOTHING`,
+        [postId, tagId]
+      );
+    }
+
+    await pool.query('COMMIT');
+    return tagIds.length;
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    throw error;
+  } finally {
+    pool.release();
+  }
 }
 
 async function getRegionIdByRegionName(regionName, coutryName = 'Россия') {
