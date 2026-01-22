@@ -281,7 +281,6 @@ async function savePostTags(postId, tags) {
         `INSERT INTO tags (name, slug) 
          VALUES ($1, $2) 
          ON CONFLICT (slug) 
-        //  DO UPDATE SET usage_count = tags.usage_count + 1, last_seen = NOW()
          RETURNING id`,
         [tagName, tagName]
       );
