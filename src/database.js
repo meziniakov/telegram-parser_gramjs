@@ -303,8 +303,6 @@ async function savePostTags(postId, tags) {
   } catch (error) {
     await pool.query('ROLLBACK');
     throw error;
-  } finally {
-    pool.release();
   }
 }
 
