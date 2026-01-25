@@ -47,9 +47,9 @@ async function processGroupedMessages(
     hashtags: parsedPost.hashtags,
     author: parsedPost.author,
     author_url: parsedPost.authorUrl,
-    mapUrl: parsedPost.mapUrl,
+    map_url: parsedPost.mapUrl,
     status: 'pending',
-    externalId: firstMsg.id,
+    external_id: firstMsg.id,
     message_id: firstMsg.id,
     text: firstMsg.message || '', // Текст берем из первого сообщения
     date: messageDate,
