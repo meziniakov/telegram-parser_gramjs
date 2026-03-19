@@ -23,11 +23,11 @@ const authenticateApiKey = (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   console.log('Provided API Key:', apiKey);
   console.log('Expected API Key:', process.env.API_KEY);
-  
+
   if (!apiKey || apiKey !== process.env.API_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  
+
   next();
 };
 
@@ -45,9 +45,10 @@ app.post('/api/parse/start', async (req, res) => {
       limit = 100,
       batchSize = 50,
       downloadMedia = false,
-      offset = 0,
+      offsetId = 0,
       proxy = null,
       resume = false,
+      sinceMessageId = 0,
     } = req.body;
 
     if (!channel) {
@@ -68,15 +69,15 @@ app.post('/api/parse/start', async (req, res) => {
         job = await createParsingJob(channel, {
           batchSize,
           downloadMedia,
-          startFromId: offset,
-          metadata: { proxy},
+          startFromId: offsetId,
+          metadata: { proxy },
         });
       }
     } else {
       job = await createParsingJob(channel, {
         batchSize,
         downloadMedia,
-        startFromId: offset,
+        startFromId: offsetId || sinceMessageId,
         metadata: { proxy },
       });
     }
@@ -84,13 +85,14 @@ app.post('/api/parse/start', async (req, res) => {
     // Запускаем парсинг асинхронно
     parseChannelResumable(channel, {
       limit,
-      offset: startFromMessageId || offset,
+      offset: startFromMessageId || offsetId,
       downloadMedia,
       fetchDirectUrls: true,
       jobId: job.job_id,
       batchSize,
       startFromMessageId,
       proxy,
+      sinceMessageId,
     }).catch((error) => {
       console.error(`Job ${job.job_id} failed:`, error.message);
       updateJobProgress(job.job_id, {

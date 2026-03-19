@@ -9,6 +9,22 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
  * - http://user:pass@host:port
  * - https://host:port
  */
+
+function parseProxyString(proxyStr) {
+  // socks4://213.226.126.100:1080
+  // socks5://user:pass@213.226.126.100:1080
+  const url = new URL(proxyStr);
+
+  return {
+    ip: url.hostname,
+    port: parseInt(url.port),
+    socksType: url.protocol === 'socks4:' ? 4 : 5,
+    // Для socks5 с авторизацией:
+    ...(url.username ? { username: url.username } : {}),
+    ...(url.password ? { password: url.password } : {}),
+  };
+}
+
 function createProxyAgent(proxyUrl) {
   if (!proxyUrl) {
     return null;
@@ -125,6 +141,7 @@ class ProxyRotator {
 
 module.exports = {
   createProxyAgent,
+  parseProxyString,
   testProxy,
   loadProxiesFromFile,
   ProxyRotator,

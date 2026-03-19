@@ -19,6 +19,7 @@ Options:
   --proxy-file <f>  Load proxies from file (one per line)
   --stats           Show job statistics
   --list            List all jobs for channel
+  --minId           Since Message Id
   
 Examples:
   node src/cli.js durov --limit 1000 --batch 100
@@ -115,6 +116,7 @@ Examples:
   }
 
   try {
+    console.log({ options });
     await parseChannelResumable(channelUsername, {
       limit: options.limit,
       offset: options.offset,
@@ -124,6 +126,7 @@ Examples:
       batchSize: options.batchSize,
       startFromMessageId,
       proxy,
+      sinceMessageId: options.sinceMessageId,
     });
 
     console.log('\n✅ Parsing completed successfully!');
@@ -158,6 +161,7 @@ function parseArgs(args) {
     list: false,
     proxy: null,
     proxyFile: null,
+    sinceMessageId: 0,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -200,6 +204,10 @@ function parseArgs(args) {
       case '--proxy-file':
       case '-pf':
         options.proxyFile = args[++i];
+        break;
+      case '--minId':
+      case '-mId':
+        options.sinceMessageId = parseInt(args[++i]);
         break;
     }
   }

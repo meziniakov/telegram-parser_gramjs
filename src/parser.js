@@ -8,7 +8,7 @@ const {
   disconnectTelegramClient,
 } = require('./telegramClient');
 const { updateJobProgress, getJobStats } = require('../jobManager');
-const { createProxyAgent } = require('../proxyManager');
+const { parseProxyString } = require('../proxyManager');
 const { waitForActiveUploads, cleanupS3Client } = require('./s3Client');
 
 /**
@@ -23,8 +23,11 @@ async function parseChannelResumable(channelUsername, options = {}) {
     jobId,
     batchSize = 50,
     startFromMessageId = null, // Для resume
+    sinceMessageId,
     proxy = null,
   } = options;
+
+  console.log(sinceMessageId);
 
   // Настройка клиента с proxy
   const clientOptions = {
@@ -35,15 +38,21 @@ async function parseChannelResumable(channelUsername, options = {}) {
   };
 
   if (proxy) {
-    const agent = createProxyAgent(proxy);
+    const agent = parseProxyString(proxy);
     clientOptions.proxy = agent;
     console.log(`[${jobId}] Using proxy: ${proxy}`);
   }
 
   try {
     // Инициализируем клиент один раз
-    await initTelegramClient();
-    const client = getTelegramClient();
+    await initTelegramClient({
+      proxy,
+      // proxy: proxyConfig ? parseProxyString(proxyConfig) : undefined,
+    });
+    const client = getTelegramClient({
+      // proxy: proxyConfig ? parseProxyString(proxyConfig) : undefined,
+      proxy,
+    });
 
     // ВАЖНО: Определяем cleanChannelName в начале
     const cleanChannelName = channelUsername.replace(/^@/, '');
@@ -68,12 +77,14 @@ async function parseChannelResumable(channelUsername, options = {}) {
 
       try {
         console.log(
-          `[${jobId}] Fetching batch ${batch + 1}/${maxBatches} from offset ${currentOffsetId}...`
+          `[${jobId}] Fetching batch ${batch + 1}/${maxBatches} from offset ${currentOffsetId}... from messageId ${startFromMessageId || 'N/A'} with minId ${sinceMessageId || 'N/A'}`
         );
 
         const messages = await client.getMessages(cleanChannelName, {
           limit: currentLimit,
           offsetId: currentOffsetId,
+          // minId ограничивает выборку снизу — не вернёт сообщения старше sinceMessageId
+          ...(sinceMessageId ? { minId: sinceMessageId } : {}),
         });
 
         if (messages.length === 0) {
@@ -92,6 +103,12 @@ async function parseChannelResumable(channelUsername, options = {}) {
           totalMessages: totalMessages.length,
           nextOffsetId: currentOffsetId,
         });
+
+        // Если последнее сообщение в батче достигло границы — дальше нет смысла идти
+        if (sinceMessageId && currentOffsetId <= sinceMessageId) {
+          console.log(`[${jobId}] Reached sinceMessageId boundary (${sinceMessageId})`);
+          break;
+        }
 
         if (batch < maxBatches - 1) {
           const delay = randomDelay(3000, 7000);

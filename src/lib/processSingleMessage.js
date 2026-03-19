@@ -3,6 +3,41 @@ const { extractMediaMetadata } = require('./extractMediaMetadata');
 const { detectAdvertising } = require('./detectAdvertising');
 const { uploadToS3 } = require('../storage');
 const { parseTelegramPost } = require('./utils');
+const { sleep } = require('./utils');
+
+/**
+ * Попытка скачать медиа с повторами при CONNECTION_NOT_INITED
+ */
+async function downloadMediaWithRetry(client, media, jobId, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[${jobId}] Download attempt ${attempt}/${maxRetries}...`);
+
+      const buffer = await client.downloadMedia(media, {
+        progressCallback: (downloaded, total) => {
+          const percent = ((downloaded / total) * 100).toFixed(1);
+          if (downloaded % (1024 * 1024 * 5) === 0) {
+            console.log(`[${jobId}] Download progress: ${percent}%`);
+          }
+        },
+      });
+
+      return buffer;
+    } catch (error) {
+      const errorMsg = error.message || '';
+
+      if (errorMsg.includes('CONNECTION_NOT_INITED') && attempt < maxRetries) {
+        console.warn(
+          `[${jobId}] CONNECTION_NOT_INITED on attempt ${attempt}. Retrying after delay...`
+        );
+        await sleep(2000 * attempt); // Экспоненциальная задержка
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
 
 // Функция для обработки одного сообщения
 async function processSingleMessage(client, msg, cleanChannelName, jobId, downloadMedia = false) {
@@ -52,17 +87,10 @@ async function processSingleMessage(client, msg, cleanChannelName, jobId, downlo
       const mediaMetadata = await extractMediaMetadata(msg.media, msg.id, cleanChannelName);
 
       let s3Url = null;
-      console.log(`[${jobId}] Downloading video from message ${msg.id}...`);
+      console.log(`[${jobId}] Downloading media from message ${msg.id}...`);
 
-      const buffer = await client.downloadMedia(msg.media, {
-        progressCallback: (downloaded, total) => {
-          const percent = ((downloaded / total) * 100).toFixed(1);
-          if (downloaded % (1024 * 1024 * 5) === 0) {
-            // Логируем каждые 5 MB
-            console.log(`[${jobId}] Download progress: ${percent}%`);
-          }
-        },
-      });
+      const buffer = await downloadMediaWithRetry(client, msg.media, jobId, 3);
+
       console.log(`[${jobId}] ✓ Downloaded ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
 
       if (!mediaMetadata.fileId) {

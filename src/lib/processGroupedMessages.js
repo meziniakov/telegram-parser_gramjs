@@ -4,6 +4,41 @@ const { detectAdvertising } = require('./detectAdvertising');
 const { uploadVideoToS3 } = require('./downloadLargeVideo');
 const { parseTelegramPost } = require('./utils');
 const { uploadToS3 } = require('../storage');
+const { sleep } = require('./utils');
+
+/**
+ * Попытка скачать медиа с повторами при CONNECTION_NOT_INITED
+ */
+async function downloadMediaWithRetry(client, media, jobId, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[${jobId}] Download attempt ${attempt}/${maxRetries}...`);
+
+      const buffer = await client.downloadMedia(media, {
+        progressCallback: (downloaded, total) => {
+          const percent = ((downloaded / total) * 100).toFixed(1);
+          if (downloaded % (1024 * 1024 * 5) === 0) {
+            console.log(`[${jobId}] Download progress: ${percent}%`);
+          }
+        },
+      });
+
+      return buffer;
+    } catch (error) {
+      const errorMsg = error.message || '';
+
+      if (errorMsg.includes('CONNECTION_NOT_INITED') && attempt < maxRetries) {
+        console.warn(
+          `[${jobId}] CONNECTION_NOT_INITED on attempt ${attempt}. Retrying after delay...`
+        );
+        await sleep(2000 * attempt); // Экспоненциальная задержка
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
 
 // Функция для обработки сгруппированных сообщений (альбом)
 async function processGroupedMessages(
@@ -78,14 +113,7 @@ async function processGroupedMessages(
 
         let s3Url = null;
 
-        const buffer = await client.downloadMedia(msg.media, {
-          progressCallback: (downloaded, total) => {
-            const percent = ((downloaded / total) * 100).toFixed(1);
-            if (downloaded % (1024 * 1024 * 5) === 0) {
-              console.log(`[${jobId}] Download progress: ${percent}%`);
-            }
-          },
-        });
+        const buffer = await downloadMediaWithRetry(client, msg.media, jobId, 3);
 
         // ЗАГРУЗКА ВИДЕО В S3
         if (downloadMedia && mediaMetadata.type === 'video') {
