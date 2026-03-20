@@ -27,7 +27,7 @@ async function parseChannelResumable(channelUsername, options = {}) {
     proxy = null,
   } = options;
 
-  console.log(sinceMessageId);
+  console.log({ options });
 
   // Настройка клиента с proxy
   const clientOptions = {
