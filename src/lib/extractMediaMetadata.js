@@ -43,7 +43,8 @@ async function extractMediaMetadata(media, messageId, channelUsername) {
   } else if (media.document && media.document.id) {
     const doc = media.document;
     metadata.fileId = bigIntToString(media.document.id);
-    metadata.size = doc.size;
+    // Преобразуем size в число (может быть BigInt)
+    metadata.size = doc.size ? Number(doc.size) : null;
     metadata.mimeType = doc.mimeType;
 
     // Получаем прямую ссылку

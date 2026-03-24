@@ -21,8 +21,6 @@ app.use((req, res, next) => {
 // Middleware для проверки API ключа
 const authenticateApiKey = (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
-  console.log('Provided API Key:', apiKey);
-  console.log('Expected API Key:', process.env.API_KEY);
 
   if (!apiKey || apiKey !== process.env.API_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
