@@ -55,7 +55,7 @@ async function parseChannelResumable(channelUsername, options = {}) {
     });
 
     // ВАЖНО: Определяем cleanChannelName в начале
-    const cleanChannelName = channelUsername.replace(/^@/, '');
+    const cleanChannelName = channelUsername?.replace(/^@/, '');
 
     // Обновляем статус задания
     await updateJobProgress(jobId, { status: 'running' });
@@ -321,7 +321,7 @@ async function parseChannel(channelUsername, limit, offset, downloadMedia, jobId
     const client = getTelegramClient();
 
     // ВАЖНО: Определяем cleanChannelName в начале
-    const cleanChannelName = channelUsername.replace(/^@/, '');
+    const cleanChannelName = channelUsername?.replace(/^@/, '');
 
     // Получаем информацию о канале для построения ссылок
     const entity = await client.getEntity(cleanChannelName);

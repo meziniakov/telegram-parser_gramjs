@@ -55,33 +55,38 @@ function parseTelegramPost(text, entities) {
 
   // Извлекаем хэштеги
   const hashtagEntities = entities.filter((e) => e.className === 'MessageEntityHashtag');
-  result.hashtags = hashtagEntities.map((e) => text.substr(e.offset, e.length).replace('#', ''));
+  result.hashtags = hashtagEntities.map((e) => text.substr(e.offset, e.length)?.replace('#', ''));
 
   // Извлекаем заголовок (первая строка до первого хэштега)
   const firstHashtag = entities.find((e) => e.className === 'MessageEntityHashtag');
-  const titleEnd = firstHashtag ? firstHashtag.offset : text.indexOf('\n');
+  const titleEnd = firstHashtag ? firstHashtag.offset : text?.indexOf('\n');
   result.title = text
-    .substring(0, titleEnd)
-    .replace(/^[^а-яА-ЯёЁ]+/, '')
-    .trim();
+    ?.substring(0, titleEnd)
+    ?.replace(/^[^а-яА-ЯёЁ]+/, '')
+    ?.trim();
 
   //Извлекаем автора изображения и URL автора (если есть)
   // Разделение текста на строки
-  const lines = text.split('\n').filter((line) => line.trim());
+  const lines = text?.split('\n')?.filter((line) => line.trim());
 
   // Ищем строку с 📷 или надписью Фото
-  const cameraIndex = lines.findIndex((line) => line.includes('📷') || line.includes('Фото'));
+  const cameraIndex = lines?.findIndex((line) => line.includes('📷') || line.includes('Фото'));
   if (cameraIndex === -1) {
     return ((result.author = null), (result.authorUrl = null));
   }
 
   // Находим конец строки с 📷
-  const endIndex = text.indexOf('\n', cameraIndex);
+  const endIndex = text?.indexOf('\n', cameraIndex);
 
   // Извлекаем автора изображения (строка после 📷  или слова Фото)
   const authorLine = lines.find((line) => line.includes('📷') || line.includes('Фото'));
   if (authorLine) {
-    result.author = authorLine.replace('📷').replace('Автор фото:', '').trim();
+    result.author = authorLine
+      ?.replace('📷', '')
+      ?.replace('От подписчика', 'От')
+      ?.replace('От подписчицы', 'От')
+      ?.replace('Автор фото:', '')
+      ?.trim();
   }
 
   console.log({ authorLine, author: result.author });
@@ -94,7 +99,7 @@ function parseTelegramPost(text, entities) {
       entity.offset >= cameraIndex &&
       entity.offset < endIndex
     ) {
-      result.authorName = text.slice(entity.offset, entity.offset + entity.length).trim();
+      result.authorName = text.slice(entity.offset, entity.offset + entity.length)?.trim();
       result.authorUrl = entity.url;
       break;
     }
@@ -104,9 +109,9 @@ function parseTelegramPost(text, entities) {
       entity.offset >= cameraIndex &&
       entity.offset < endIndex
     ) {
-      const mention = text.slice(entity.offset, entity.offset + entity.length).trim();
+      const mention = text.slice(entity.offset, entity.offset + entity.length)?.trim();
       result.author = mention;
-      result.authorUrl = `https://t.me/${mention.replace('@', '')}`;
+      result.authorUrl = `https://t.me/${mention?.replace('@', '')}`;
       break;
     }
   }
