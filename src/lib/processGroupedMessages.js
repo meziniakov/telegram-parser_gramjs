@@ -51,7 +51,8 @@ async function processGroupedMessages(
   // Сортируем по ID (первое сообщение содержит текст)
   messages.sort((a, b) => b.id - a.id);
 
-  const firstMsg = messages[0];
+  const firstMsg = messages.find((m) => m.message && m.message.trim() !== '') || messages[0];
+  // console.log({ firstMsg });
   const isAd = detectAdvertising(firstMsg.message);
 
   // Пропускаем весь альбом, если первое сообщение - реклама

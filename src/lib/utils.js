@@ -65,48 +65,46 @@ function parseTelegramPost(text, entities) {
     .replace(/^[^а-яА-ЯёЁ]+/, '')
     .trim();
 
-    //Извлекаем автора изображения и URL автора (если есть)
+  //Извлекаем автора изображения и URL автора (если есть)
   // Разделение текста на строки
   const lines = text.split('\n').filter((line) => line.trim());
 
-  // Ищем строку с 📷
-  const cameraIndex = text.indexOf("📷");
+  // Ищем строку с 📷 или надписью Фото
+  const cameraIndex = lines.findIndex((line) => line.includes('📷') || line.includes('Фото'));
   if (cameraIndex === -1) {
-    return result.author = null, result.authorUrl = null;
+    return ((result.author = null), (result.authorUrl = null));
   }
 
   // Находим конец строки с 📷
-  const endIndex = text.indexOf("\n", cameraIndex);
+  const endIndex = text.indexOf('\n', cameraIndex);
 
-  // Извлекаем автора изображения (строка после 📷)
-  const authorLine = lines.find((line) => line.includes('📷'));
+  // Извлекаем автора изображения (строка после 📷  или слова Фото)
+  const authorLine = lines.find((line) => line.includes('📷') || line.includes('Фото'));
   if (authorLine) {
-    result.author = authorLine.split('📷')[1].replace('Автор фото:', '').trim();
+    result.author = authorLine.replace('📷').replace('Автор фото:', '').trim();
   }
+
+  console.log({ authorLine, author: result.author });
 
   // Извлекаем URL автора изображения (если есть)
   for (const entity of entities) {
     // Ищем TextUrl после 📷
     if (
-      entity.className === "MessageEntityTextUrl" &&
+      entity.className === 'MessageEntityTextUrl' &&
       entity.offset >= cameraIndex &&
       entity.offset < endIndex
     ) {
-      result.authorName = text
-        .slice(entity.offset, entity.offset + entity.length)
-        .trim();
+      result.authorName = text.slice(entity.offset, entity.offset + entity.length).trim();
       result.authorUrl = entity.url;
       break;
     }
     // Альтернативно ищем упоминание @username
     if (
-      entity.className === "MessageEntityMention" &&
+      entity.className === 'MessageEntityMention' &&
       entity.offset >= cameraIndex &&
       entity.offset < endIndex
     ) {
-      const mention = text
-        .slice(entity.offset, entity.offset + entity.length)
-        .trim();
+      const mention = text.slice(entity.offset, entity.offset + entity.length).trim();
       result.author = mention;
       result.authorUrl = `https://t.me/${mention.replace('@', '')}`;
       break;
