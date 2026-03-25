@@ -122,9 +122,9 @@ function parseTelegramPost(text, entities) {
     }
   }
 
-  // Извлекаем координаты
-  // const regex = /[-+]?\d{1,2}\.\d+,\s*[-+]?\d{1,3}\.\d+/g;
-  const coordsMatch = text.match(/(\d+\.\d+), (\d+\.\d+)/);
+  // Извлекаем координаты (c поддержкой отрицательных чисел и десятичных точек)
+  // const regex = /(-?\d+\.\d+), (-?\d+\.\d+)/
+  const coordsMatch = text?.match(/(-?\d+\.\d+), (-?\d+\.\d+)/);
   if (coordsMatch) {
     result.coordinates.lat = parseFloat(coordsMatch[1]);
     result.coordinates.lon = parseFloat(coordsMatch[2]);
