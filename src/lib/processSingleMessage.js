@@ -42,9 +42,14 @@ async function downloadMediaWithRetry(client, media, jobId, maxRetries = 3) {
 // Функция для обработки одного сообщения
 async function processSingleMessage(client, msg, cleanChannelName, jobId, downloadMedia = false) {
   const isAd = detectAdvertising(msg.message);
-  if (isAd) {
+  // if (isAd) {
+  //   return { savedPosts: 0, savedMedia: 0 };
+  // }
+  if (!msg.media) {
+    console.log(`[${jobId}] No media found in message ${msg.id}, skipping...`);
     return { savedPosts: 0, savedMedia: 0 };
   }
+
   const messageDate = msg.date instanceof Date ? msg.date : new Date(msg.date * 1000);
 
   const parsedPost = parseTelegramPost(msg.message || '', msg.entities || []);

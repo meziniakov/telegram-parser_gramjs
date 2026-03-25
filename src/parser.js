@@ -92,7 +92,9 @@ async function parseChannelResumable(channelUsername, options = {}) {
           break;
         }
 
-        totalMessages.push(...messages);
+        let postMessages = messages.filter((m) => m.media?.photo || m.media?.video);
+
+        totalMessages.push(...postMessages);
         console.log(`[${jobId}] ✓ Batch ${batch + 1}: ${messages.length} messages`);
 
         // Обновляем offset для следующей порции

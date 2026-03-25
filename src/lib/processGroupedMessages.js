@@ -55,10 +55,14 @@ async function processGroupedMessages(
   // console.log({ firstMsg });
   const isAd = detectAdvertising(firstMsg.message);
 
-  // Пропускаем весь альбом, если первое сообщение - реклама
-  if (isAd) {
+  if (!firstMsg.media) {
+    console.log(`[${jobId}] No media found in grouped messages, skipping...`);
     return { savedPosts: 0, savedMedia: 0 };
   }
+  // Пропускаем весь альбом, если первое сообщение - реклама
+  // if (isAd) {
+  //   return { savedPosts: 0, savedMedia: 0 };
+  // }
 
   const messageDate =
     firstMsg.date instanceof Date ? firstMsg.date : new Date(firstMsg.date * 1000);
