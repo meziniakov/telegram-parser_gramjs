@@ -71,21 +71,27 @@ function parseTelegramPost(text, entities) {
 
   // Ищем строку с 📷 или надписью Фото
   const cameraIndex = lines?.findIndex((line) => line.includes('📷') || line.includes('Фото'));
-  if (cameraIndex === -1) {
-    return ((result.author = null), (result.authorUrl = null));
-  }
+
+  // if (cameraIndex === -1) {
+  //   ((result.author = null), (result.authorUrl = null));
+  // }
 
   // Находим конец строки с 📷
   const endIndex = text?.indexOf('\n', cameraIndex);
 
+  console.log({ endIndex });
+
   // Извлекаем автора изображения (строка после 📷  или слова Фото)
-  const authorLine = lines.find((line) => line.includes('📷') || line.includes('Фото'));
+  const authorLine = lines.find(
+    (line) => line.includes('📷') || line.includes('Фото') || line.includes('Автор')
+  );
   if (authorLine) {
     result.author = authorLine
       ?.replace('📷', '')
       ?.replace('От подписчика', 'От')
       ?.replace('От подписчицы', 'От')
       ?.replace('Автор фото:', '')
+      ?.replace('Автор', '')
       ?.trim();
   }
 
