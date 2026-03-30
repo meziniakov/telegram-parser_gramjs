@@ -33,7 +33,7 @@ async function generateUniqueSlug(title) {
 
   // Если после очистки осталась пустая строка, используем значение по умолчанию
   if (!base) {
-    base = 'post';
+    base = 'story';
   }
 
   // Проверяем, доступен ли slug
@@ -42,8 +42,10 @@ async function generateUniqueSlug(title) {
   const maxAttempts = 100;
 
   while (counter < maxAttempts) {
-    const sql = `SELECT id FROM post WHERE slug = $1 LIMIT 1`;
+    const sql = `SELECT id FROM posts WHERE slug = $1 LIMIT 1`;
+    console.log({ sqlExisting: sql });
     const existing = await pool.query(sql, [slug]);
+    console.log({ existing });
 
     if (existing.rows.length === 0) {
       return slug;
@@ -142,13 +144,16 @@ async function generateUniqueSlug(title) {
 // }
 
 async function savePost(postData) {
-  const regionName = postData.hashtags.find(
-    (tag) =>
-      tag.toLowerCase().includes('край') ||
-      tag.toLowerCase().includes('область') ||
-      tag.toLowerCase().includes('республика') ||
-      tag.includes('округ')
-  );
+  const regionName = postData.hashtags
+    .find(
+      (tag) =>
+        tag.toLowerCase().includes('край') ||
+        tag.toLowerCase().includes('область') ||
+        tag.toLowerCase().includes('республика') ||
+        tag.includes('округ')
+    )
+    .replace(/(?<!^)(?=[А-Я])/g, ' ')
+    .trim();
   // const regionName = postData.hashtags[0]?.replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
   const { regionId } = await getRegionIdByRegionName(regionName);
 

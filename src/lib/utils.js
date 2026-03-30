@@ -58,8 +58,9 @@ function parseTelegramPost(text, entities) {
   result.hashtags = hashtagEntities.map((e) => text.substr(e.offset, e.length)?.replace('#', ''));
 
   // Извлекаем заголовок (первая строка до первого хэштега)
-  const firstHashtag = entities.find((e) => e.className === 'MessageEntityHashtag');
-  const titleEnd = firstHashtag ? firstHashtag.offset : text?.indexOf('\n');
+  // const firstHashtag = entities.find((e) => e.className === 'MessageEntityHashtag');
+  // const titleEnd = firstHashtag ? firstHashtag.offset : text?.indexOf('\n');
+  const titleEnd = text?.indexOf('\n');
   result.title = text
     ?.substring(0, titleEnd)
     // ?.replace(/^[^а-яА-ЯёЁ]+/, '') //удаляем все символы в начале, кроме русских букв
