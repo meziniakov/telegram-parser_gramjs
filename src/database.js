@@ -3,6 +3,11 @@ const { translit } = require('./lib/translit');
 
 const { Pool } = require('pg');
 
+/**
+ * Настройки подключения к базе данных PostgreSQL
+ * - Убедитесь, что переменные окружения DB_HOST, DB_PORT, DB_NAME, DB_USER и DB_PASSWORD установлены правильно
+ * - Таймауты увеличены для предотвращения ошибок при медленных соединениях или больших запросах
+ */
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
@@ -59,6 +64,396 @@ async function generateUniqueSlug(title) {
   // На случай если не получилось найти уникальный за 100 попыток
   throw new Error('Could not generate unique slug');
 }
+/** * Сохранить пост в базе данных
+ * - Если пост с таким channel_username и message_id уже существует, обновляем его
+ * - Иначе создаем новый пост
+ * - Сохраняем теги и связываем их с постом
+ */
+async function savePost(postData) {
+  const regionName = postData.hashtags
+    .find(
+      (tag) =>
+        tag.toLowerCase().includes('край') ||
+        tag.toLowerCase().includes('область') ||
+        tag.toLowerCase().includes('республика') ||
+        tag.includes('округ')
+    )
+    .replace(/(?<!^)(?=[А-Я])/g, ' ')
+    .trim();
+  // const regionName = postData.hashtags[0]?.replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
+  const { regionId } = await getRegionIdByRegionName(regionName);
+
+  try {
+    // 1. Сначала проверяем, есть ли уже такой пост
+    const checkQuery = `
+      SELECT id FROM posts 
+      WHERE channel_username = $1 AND external_id = $2
+    `;
+
+    const checkResult = await pool.query(checkQuery, [
+      postData.channel_username,
+      postData.external_id,
+    ]);
+
+    let postId;
+
+    if (checkResult.rows.length > 0) {
+      // Обновляем существующий пост
+      postId = checkResult.rows[0].id;
+
+      const updateQuery = `
+        UPDATE posts 
+        SET 
+          title = $1,
+          description = $2,
+          text = $3,
+          views = $4,
+          updated_at = NOW()
+        WHERE id = $5
+      `;
+
+      await pool.query(updateQuery, [
+        postData.title,
+        postData.description,
+        postData.text,
+        postData.views,
+        postId,
+      ]);
+
+      console.log(`🔄 Обновлён пост ${postId}`);
+    } else {
+      // Создаем новый пост - БЕЗ RETURNING
+      // Генерируем ID заранее на стороне Node.js
+      postId = 'c' + require('crypto').randomBytes(12).toString('hex').slice(0, 24);
+
+      const insertQuery = `
+        INSERT INTO posts (
+          id, 
+          channel_username, 
+          title, 
+          description, 
+          latitude, 
+          longitude, 
+          region_id, 
+          author, 
+          author_url, 
+          map_url, 
+          status, 
+          external_id, 
+          telegram_entities, 
+          text, 
+          date, 
+          views, 
+          is_ad, 
+          job_id, 
+          created_at, 
+          updated_at, 
+          user_id,
+          slug
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 
+          NOW(), 
+          NOW(), 
+          (SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1),
+          $19
+        )
+      `;
+
+      const slug = await generateUniqueSlug(postData.title);
+
+      await pool.query(insertQuery, [
+        postId, // Передаем сгенерированный ID
+        postData.channel_username,
+        postData.title,
+        postData.description,
+        postData.latitude,
+        postData.longitude,
+        regionId,
+        postData.author,
+        postData.author_url,
+        postData.map_url,
+        postData.status,
+        postData.external_id,
+        postData.telegram_entities,
+        postData.text,
+        postData.date,
+        postData.views,
+        postData.is_ad,
+        postData.job_id,
+        slug,
+      ]);
+
+      console.log(`💾 Создан пост ${postId}`);
+    }
+
+    // 2. Сохраняем теги
+    if (postData.hashtags && postData.hashtags.length > 0) {
+      await savePostTags(postId, postData.hashtags);
+    }
+
+    await pool.query('COMMIT');
+    return postId;
+  } catch (error) {
+    console.error('Error saving post:', error.message);
+    console.error('Full error:', error);
+    await pool.query('ROLLBACK');
+    throw error;
+  }
+}
+
+/** * Сохранить метаданные медиа в базе данных
+ * - Если медиа с таким post_id и file_id уже существует, обновляем его
+ * - Иначе создаем новый медиа-запись
+ * - В случае ошибок с ON CONFLICT, пробуем UPDATE/INSERT отдельно
+ * - Добавлена логика повторных попыток при временных ошибках
+ */
+async function saveMediaMetadata(mediaData) {
+  console.log('💾 Сохраняем медиа:');
+
+  const maxRetries = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Генерируем ID для медиа
+      const mediaId = 'c' + require('crypto').randomBytes(12).toString('hex').slice(0, 24);
+
+      // Проверяем существует ли уже такое медиа
+      const checkQuery = `
+        SELECT id FROM media 
+        WHERE post_id = $1 AND file_id = $2 
+        LIMIT 1
+      `;
+
+      const checkResult = await pool.query(checkQuery, [mediaData.post_id, mediaData.file_id]);
+
+      if (checkResult.rows.length > 0) {
+        // Обновляем существующее медиа
+        const updateQuery = `
+          UPDATE media 
+          SET 
+            s3_url = $1,
+            file_size = $2,
+            file_url = $3,
+            direct_url = $4,
+            thumbnail_url = $5,
+            mime_type = $6,
+            width = $7,
+            height = $8,
+            duration = $9,
+            media_order = $10,
+            updated_at = NOW()
+          WHERE id = $11
+        `;
+
+        await pool.query(updateQuery, [
+          mediaData.s3_url,
+          mediaData.file_size ? Number(mediaData.file_size) : null,
+          mediaData.file_url,
+          mediaData.direct_url,
+          mediaData.thumbnail_url,
+          mediaData.mime_type,
+          mediaData.width ? Number(mediaData.width) : null,
+          mediaData.height ? Number(mediaData.height) : null,
+          mediaData.duration ? Number(mediaData.duration) : null,
+          mediaData.media_order || 0,
+          checkResult.rows[0].id,
+        ]);
+
+        console.log(`✓ Обновлено медиа: ${checkResult.rows[0].id}`);
+        return checkResult.rows[0].id;
+      } else {
+        // Создаем новое медиа
+        const insertQuery = `
+          INSERT INTO media (
+            id,
+            post_id,
+            file_id,
+            s3_url,
+            file_size,
+            file_url,
+            direct_url,
+            thumbnail_url,
+            mime_type,
+            width,
+            height,
+            duration,
+            media_order,
+            type,
+            created_at,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+        `;
+
+        await pool.query(insertQuery, [
+          mediaId, // Указываем ID
+          mediaData.post_id,
+          mediaData.file_id,
+          mediaData.s3_url,
+          mediaData.file_size ? Number(mediaData.file_size) : null,
+          mediaData.file_url,
+          mediaData.direct_url,
+          mediaData.thumbnail_url,
+          mediaData.mime_type,
+          mediaData.width ? Number(mediaData.width) : null,
+          mediaData.height ? Number(mediaData.height) : null,
+          mediaData.duration ? Number(mediaData.duration) : null,
+          mediaData.media_order || 0,
+          mediaData.type || 'PHOTO',
+        ]);
+
+        console.log(`✓ Создано медиа: ${mediaId}`);
+        return mediaId;
+      }
+    } catch (error) {
+      lastError = error;
+      console.error(`Error saving media (attempt ${attempt}/${maxRetries}):`, error.message);
+
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000; // Экспоненциальная задержка
+        console.log(`Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  // Все попытки провалились
+  console.error('Failed to save media after all retries:', lastError.message);
+  console.error('Media data:', mediaData);
+  throw lastError;
+}
+
+/** * Сохранить теги поста
+ * - Для каждого тега: если он уже существует, используем его ID, иначе создаем новый тег и получаем его ID
+ * - Затем связываем пост с тегами через таблицу _PostTags
+ */
+async function savePostTags(postId, tags) {
+  console.log(`💾 Сохраняем ${tags.length} тегов для поста ${postId}`);
+
+  if (!tags || tags.length === 0) {
+    console.log('⚠️ Нет тегов для сохранения');
+    return 0;
+  }
+
+  try {
+    await pool.query('BEGIN');
+
+    const tagIds = [];
+
+    // 1. Создаём/получаем теги
+    for (const tagName of tags) {
+      const cleanTagName = tagName.replace('#', '').trim();
+      if (!cleanTagName) continue;
+
+      // Генерируем slug из имени тега
+      const slug = translit(cleanTagName);
+
+      // Сначала проверяем, существует ли тег
+      const existingTag = await pool.query('SELECT id FROM tags WHERE name = $1 LIMIT 1', [
+        cleanTagName,
+      ]);
+
+      let tagId;
+
+      if (existingTag.rows.length > 0) {
+        // Тег уже существует
+        tagId = existingTag.rows[0].id;
+        console.log(`✓ Тег найден: "${cleanTagName}" → ID: ${tagId}`);
+      } else {
+        // Создаем новый тег
+        // Prisma сама сгенерирует CUID, но мы можем передать свой
+        tagId = 'c' + require('crypto').randomBytes(12).toString('hex').slice(0, 24);
+
+        // Вставляем тег в таблицу tags
+        await pool.query('INSERT INTO tags (id, name, slug) VALUES ($1, $2, $3)', [
+          tagId,
+          cleanTagName,
+          slug || null,
+        ]);
+
+        console.log(`✓ Тег создан: "${cleanTagName}" → ID: ${tagId}`);
+      }
+
+      tagIds.push(tagId);
+    }
+
+    // 2. Связываем пост с тегами через таблицу _PostTags
+    if (tagIds.length > 0) {
+      console.log(`📊 Создаем связи в таблице _PostTags`);
+
+      for (const tagId of tagIds) {
+        try {
+          // Используем правильное имя таблицы: "_PostTags" (с большой P)
+          await pool.query(
+            `INSERT INTO "_PostTags" ("A", "B")
+             VALUES ($1, $2)
+             ON CONFLICT ("A", "B") DO NOTHING`,
+            [postId, tagId]
+          );
+
+          console.log(`✓ Связь создана: пост ${postId} ↔ тег ${tagId}`);
+        } catch (linkError) {
+          console.error(`❌ Ошибка создания связи:`, linkError.message);
+          // Можно продолжить с другими тегами
+        }
+      }
+    }
+
+    await pool.query('COMMIT');
+    console.log(`✅ Сохранено ${tagIds.length} тегов для поста ${postId}`);
+    return tagIds.length;
+  } catch (error) {
+    console.error('❌ Критическая ошибка в savePostTags:', error.message);
+    console.error('Stack trace:', error.stack);
+    await pool.query('ROLLBACK');
+    throw error;
+  }
+}
+
+/** * Получить ID региона по его названию
+ * - Если регион с таким названием уже существует, возвращаем его ID
+ * - Иначе создаем новый регион и возвращаем его ID
+ */
+async function getRegionIdByRegionName(regionName, coutryName = 'Россия') {
+  if (!regionName) {
+    return null;
+    // return {
+    //   error: 'Region name is required',
+    // };
+  }
+  try {
+    const query = `SELECT id FROM regions WHERE name = $1 LIMIT 1`;
+    const res = await pool.query(query, [regionName]);
+    console.log('getRegionIdByRegionName', regionName, coutryName, 'found rows:', res.rows.length);
+    if (res.rows.length > 0) {
+      return { regionId: res.rows[0].id };
+    }
+
+    // Если региона нет, создаем новый
+    const insertQuery = `
+      INSERT INTO regions (id, name, slug, country_id)
+      VALUES ('c' || substring(md5(random()::text || clock_timestamp()::text) from 1 for 24), $1, $2, (SELECT id FROM countries WHERE name = $3 LIMIT 1))
+      RETURNING id
+    `;
+    const slug = translit(regionName);
+
+    const insertRes = await pool.query(insertQuery, [regionName, slug, coutryName]);
+    console.log('Inserted new region:', regionName, 'with id:', insertRes.rows[0].id);
+
+    return { regionId: insertRes.rows[0].id };
+  } catch (e) {
+    console.error('Error in getRegionIdByRegionName:', e.message);
+    return { error: e };
+  }
+}
+
+module.exports = {
+  pool,
+  savePost,
+  saveMediaMetadata,
+};
 
 // async function savePostOld(postData) {
 //   const regionName = postData.hashtags[0].replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
@@ -142,141 +537,6 @@ async function generateUniqueSlug(title) {
 //     throw error;
 //   }
 // }
-
-async function savePost(postData) {
-  const regionName = postData.hashtags
-    .find(
-      (tag) =>
-        tag.toLowerCase().includes('край') ||
-        tag.toLowerCase().includes('область') ||
-        tag.toLowerCase().includes('республика') ||
-        tag.includes('округ')
-    )
-    .replace(/(?<!^)(?=[А-Я])/g, ' ')
-    .trim();
-  // const regionName = postData.hashtags[0]?.replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
-  const { regionId } = await getRegionIdByRegionName(regionName);
-
-  // console.log({ postData });
-
-  try {
-    // 1. Сначала проверяем, есть ли уже такой пост
-    const checkQuery = `
-      SELECT id FROM posts 
-      WHERE channel_username = $1 AND message_id = $2
-    `;
-
-    const checkResult = await pool.query(checkQuery, [
-      postData.channel_username,
-      postData.message_id,
-    ]);
-
-    let postId;
-
-    if (checkResult.rows.length > 0) {
-      // Обновляем существующий пост
-      postId = checkResult.rows[0].id;
-
-      const updateQuery = `
-        UPDATE posts 
-        SET 
-          title = $1,
-          description = $2,
-          text = $3,
-          views = $4,
-          updated_at = NOW()
-        WHERE id = $5
-      `;
-
-      await pool.query(updateQuery, [
-        postData.title,
-        postData.description,
-        postData.text,
-        postData.views,
-        postId,
-      ]);
-
-      console.log(`🔄 Обновлён пост ${postId}`);
-    } else {
-      // Создаем новый пост - БЕЗ RETURNING
-      // Генерируем ID заранее на стороне Node.js
-      postId = 'c' + require('crypto').randomBytes(12).toString('hex').slice(0, 24);
-
-      const insertQuery = `
-        INSERT INTO posts (
-          id, 
-          channel_username, 
-          title, 
-          description, 
-          latitude, 
-          longitude, 
-          region_id, 
-          author, 
-          author_url, 
-          map_url, 
-          status, 
-          external_id, 
-          message_id, 
-          text, 
-          date, 
-          views, 
-          is_ad, 
-          job_id, 
-          created_at, 
-          updated_at, 
-          user_id,
-          slug
-        )
-        VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 
-          NOW(), 
-          NOW(), 
-          (SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1),
-          $19
-        )
-      `;
-
-      const slug = await generateUniqueSlug(postData.title);
-
-      await pool.query(insertQuery, [
-        postId, // Передаем сгенерированный ID
-        postData.channel_username,
-        postData.title,
-        postData.description,
-        postData.latitude,
-        postData.longitude,
-        regionId,
-        postData.author,
-        postData.author_url,
-        postData.map_url,
-        postData.status,
-        postData.external_id,
-        postData.message_id,
-        postData.text,
-        postData.date,
-        postData.views,
-        postData.is_ad,
-        postData.job_id,
-        slug,
-      ]);
-
-      console.log(`💾 Создан пост ${postId}`);
-    }
-
-    // 2. Сохраняем теги
-    if (postData.hashtags && postData.hashtags.length > 0) {
-      await savePostTags(postId, postData.hashtags);
-    }
-
-    await pool.query('COMMIT');
-    return postId;
-  } catch (error) {
-    console.error('Error saving post:', error.message);
-    console.error('Full error:', error);
-    await pool.query('ROLLBACK');
-    throw error;
-  }
-}
 
 // async function saveMediaMetadataOld(mediaData, retries = 3) {
 //   let fileId = null;
@@ -475,123 +735,6 @@ async function savePost(postData) {
 //   return null;
 // }
 
-async function saveMediaMetadata(mediaData) {
-  console.log('💾 Сохраняем медиа:');
-
-  const maxRetries = 3;
-  let lastError;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      // Генерируем ID для медиа
-      const mediaId = 'c' + require('crypto').randomBytes(12).toString('hex').slice(0, 24);
-
-      // Проверяем существует ли уже такое медиа
-      const checkQuery = `
-        SELECT id FROM media 
-        WHERE post_id = $1 AND file_id = $2 
-        LIMIT 1
-      `;
-
-      const checkResult = await pool.query(checkQuery, [mediaData.post_id, mediaData.file_id]);
-
-      if (checkResult.rows.length > 0) {
-        // Обновляем существующее медиа
-        const updateQuery = `
-          UPDATE media 
-          SET 
-            s3_url = $1,
-            file_size = $2,
-            file_url = $3,
-            direct_url = $4,
-            thumbnail_url = $5,
-            mime_type = $6,
-            width = $7,
-            height = $8,
-            duration = $9,
-            media_order = $10,
-            updated_at = NOW()
-          WHERE id = $11
-        `;
-
-        await pool.query(updateQuery, [
-          mediaData.s3_url,
-          mediaData.file_size ? Number(mediaData.file_size) : null,
-          mediaData.file_url,
-          mediaData.direct_url,
-          mediaData.thumbnail_url,
-          mediaData.mime_type,
-          mediaData.width ? Number(mediaData.width) : null,
-          mediaData.height ? Number(mediaData.height) : null,
-          mediaData.duration ? Number(mediaData.duration) : null,
-          mediaData.media_order || 0,
-          checkResult.rows[0].id,
-        ]);
-
-        console.log(`✓ Обновлено медиа: ${checkResult.rows[0].id}`);
-        return checkResult.rows[0].id;
-      } else {
-        // Создаем новое медиа
-        const insertQuery = `
-          INSERT INTO media (
-            id,
-            post_id,
-            file_id,
-            s3_url,
-            file_size,
-            file_url,
-            direct_url,
-            thumbnail_url,
-            mime_type,
-            width,
-            height,
-            duration,
-            media_order,
-            type,
-            created_at,
-            updated_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
-        `;
-
-        await pool.query(insertQuery, [
-          mediaId, // Указываем ID
-          mediaData.post_id,
-          mediaData.file_id,
-          mediaData.s3_url,
-          mediaData.file_size ? Number(mediaData.file_size) : null,
-          mediaData.file_url,
-          mediaData.direct_url,
-          mediaData.thumbnail_url,
-          mediaData.mime_type,
-          mediaData.width ? Number(mediaData.width) : null,
-          mediaData.height ? Number(mediaData.height) : null,
-          mediaData.duration ? Number(mediaData.duration) : null,
-          mediaData.media_order || 0,
-          mediaData.type || 'PHOTO',
-        ]);
-
-        console.log(`✓ Создано медиа: ${mediaId}`);
-        return mediaId;
-      }
-    } catch (error) {
-      lastError = error;
-      console.error(`Error saving media (attempt ${attempt}/${maxRetries}):`, error.message);
-
-      if (attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000; // Экспоненциальная задержка
-        console.log(`Retrying in ${delay}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-  }
-
-  // Все попытки провалились
-  console.error('Failed to save media after all retries:', lastError.message);
-  console.error('Media data:', mediaData);
-  throw lastError;
-}
-
 /**
  * Сохранить теги поста
  */
@@ -630,125 +773,3 @@ async function saveMediaMetadata(mediaData) {
 //     throw error;
 //   }
 // }
-
-async function savePostTags(postId, tags) {
-  console.log(`💾 Сохраняем ${tags.length} тегов для поста ${postId}`);
-
-  if (!tags || tags.length === 0) {
-    console.log('⚠️ Нет тегов для сохранения');
-    return 0;
-  }
-
-  try {
-    await pool.query('BEGIN');
-
-    const tagIds = [];
-
-    // 1. Создаём/получаем теги
-    for (const tagName of tags) {
-      const cleanTagName = tagName.replace('#', '').trim();
-      if (!cleanTagName) continue;
-
-      // Генерируем slug из имени тега
-      const slug = translit(cleanTagName);
-
-      // Сначала проверяем, существует ли тег
-      const existingTag = await pool.query('SELECT id FROM tags WHERE name = $1 LIMIT 1', [
-        cleanTagName,
-      ]);
-
-      let tagId;
-
-      if (existingTag.rows.length > 0) {
-        // Тег уже существует
-        tagId = existingTag.rows[0].id;
-        console.log(`✓ Тег найден: "${cleanTagName}" → ID: ${tagId}`);
-      } else {
-        // Создаем новый тег
-        // Prisma сама сгенерирует CUID, но мы можем передать свой
-        tagId = 'c' + require('crypto').randomBytes(12).toString('hex').slice(0, 24);
-
-        // Вставляем тег в таблицу tags
-        await pool.query('INSERT INTO tags (id, name, slug) VALUES ($1, $2, $3)', [
-          tagId,
-          cleanTagName,
-          slug || null,
-        ]);
-
-        console.log(`✓ Тег создан: "${cleanTagName}" → ID: ${tagId}`);
-      }
-
-      tagIds.push(tagId);
-    }
-
-    // 2. Связываем пост с тегами через таблицу _PostTags
-    if (tagIds.length > 0) {
-      console.log(`📊 Создаем связи в таблице _PostTags`);
-
-      for (const tagId of tagIds) {
-        try {
-          // Используем правильное имя таблицы: "_PostTags" (с большой P)
-          await pool.query(
-            `INSERT INTO "_PostTags" ("A", "B")
-             VALUES ($1, $2)
-             ON CONFLICT ("A", "B") DO NOTHING`,
-            [postId, tagId]
-          );
-
-          console.log(`✓ Связь создана: пост ${postId} ↔ тег ${tagId}`);
-        } catch (linkError) {
-          console.error(`❌ Ошибка создания связи:`, linkError.message);
-          // Можно продолжить с другими тегами
-        }
-      }
-    }
-
-    await pool.query('COMMIT');
-    console.log(`✅ Сохранено ${tagIds.length} тегов для поста ${postId}`);
-    return tagIds.length;
-  } catch (error) {
-    console.error('❌ Критическая ошибка в savePostTags:', error.message);
-    console.error('Stack trace:', error.stack);
-    await pool.query('ROLLBACK');
-    throw error;
-  }
-}
-
-async function getRegionIdByRegionName(regionName, coutryName = 'Россия') {
-  if (!regionName) {
-    return null;
-    // return {
-    //   error: 'Region name is required',
-    // };
-  }
-  try {
-    const query = `SELECT id FROM regions WHERE name = $1 LIMIT 1`;
-    const res = await pool.query(query, [regionName]);
-    console.log('getRegionIdByRegionName', regionName, coutryName, 'found rows:', res.rows.length);
-    if (res.rows.length > 0) {
-      return { regionId: res.rows[0].id };
-    }
-
-    // Если региона нет, создаем новый
-    const insertQuery = `
-      INSERT INTO regions (id, name, slug, country_id)
-      VALUES ('c' || substring(md5(random()::text || clock_timestamp()::text) from 1 for 24), $1, $2, (SELECT id FROM countries WHERE name = $3 LIMIT 1))
-      RETURNING id
-    `;
-    const slug = translit(regionName);
-
-    const insertRes = await pool.query(insertQuery, [regionName, slug, coutryName]);
-    console.log('Inserted new region:', regionName, 'with id:', insertRes.rows[0].id);
-
-    return { regionId: insertRes.rows[0].id };
-  } catch (e) {
-    console.error('Error in getRegionIdByRegionName:', e.message);
-    return { error: e };
-  }
-}
-
-module.exports = {
-  pool,
-  savePost,
-  saveMediaMetadata,
-};

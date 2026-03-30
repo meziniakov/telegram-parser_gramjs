@@ -83,7 +83,7 @@ async function updateJobProgress(jobId, progress) {
   }
 
   if (progress.lastMessageId !== undefined) {
-    updates.push(`last_message_id = $${paramIndex++}`);
+    updates.push(`last_external_id = $${paramIndex++}`);
     values.push(progress.lastMessageId);
   }
 

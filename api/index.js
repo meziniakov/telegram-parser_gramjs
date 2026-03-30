@@ -230,8 +230,8 @@ app.get('/api/stats/channel/:channel', async (req, res) => {
         COUNT(DISTINCT CASE WHEN p.is_ad THEN p.id END) as ad_posts,
         MIN(p.date) as first_post_date,
         MAX(p.date) as last_post_date,
-        MIN(p.message_id) as first_message_id,
-        MAX(p.message_id) as last_message_id,
+        MIN(p.external_id) as first_external_id,
+        MAX(p.external_id) as last_external_id,
         SUM(p.views) as total_views
       FROM posts p
       LEFT JOIN media m ON m.post_id = p.id
@@ -251,8 +251,8 @@ app.get('/api/stats/channel/:channel', async (req, res) => {
         total_views: parseInt(stats.total_views),
         first_post_date: stats.first_post_date,
         last_post_date: stats.last_post_date,
-        first_message_id: parseInt(stats.first_message_id),
-        last_message_id: parseInt(stats.last_message_id),
+        first_external_id: parseInt(stats.first_external_id),
+        last_external_id: parseInt(stats.last_external_id),
       },
     });
   } catch (error) {

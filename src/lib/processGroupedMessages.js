@@ -91,7 +91,7 @@ async function processGroupedMessages(
     map_url: parsedPost.mapUrl,
     status: 'parsed',
     external_id: firstMsg.id,
-    message_id: firstMsg.id,
+    telegram_entities: JSON.stringify(firstMsg.entities || null),
     text: firstMsg.message || '', // Текст берем из первого сообщения
     date: messageDate,
     views: firstMsg.views || 0,

@@ -326,7 +326,7 @@ async function testWriteOperations(config) {
     // Тестовая вставка
     const testData = {
       channel_username: 'test_connection',
-      message_id: Date.now(),
+      external_id: Date.now(),
       text: 'Test connection message',
       date: new Date(),
       views: 0,
@@ -337,13 +337,13 @@ async function testWriteOperations(config) {
     info('Inserting test record...');
     const insertResult = await client.query(
       `
-      INSERT INTO posts (channel_username, message_id, text, date, views, is_ad, job_id)
+      INSERT INTO posts (channel_username, external_id, text, date, views, is_ad, job_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id
     `,
       [
         testData.channel_username,
-        testData.message_id,
+        testData.external_id,
         testData.text,
         testData.date,
         testData.views,
