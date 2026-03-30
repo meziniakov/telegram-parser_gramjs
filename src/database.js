@@ -142,7 +142,7 @@ async function generateUniqueSlug(title) {
 // }
 
 async function savePost(postData) {
-  const regionName = postData.hashtags.some(
+  const regionName = postData.hashtags.find(
     (tag) =>
       tag.toLowerCase().includes('край') ||
       tag.toLowerCase().includes('область') ||
@@ -711,9 +711,10 @@ async function savePostTags(postId, tags) {
 
 async function getRegionIdByRegionName(regionName, coutryName = 'Россия') {
   if (!regionName) {
-    return {
-      error: 'Region name is required',
-    };
+    return null;
+    // return {
+    //   error: 'Region name is required',
+    // };
   }
   try {
     const query = `SELECT id FROM regions WHERE name = $1 LIMIT 1`;
