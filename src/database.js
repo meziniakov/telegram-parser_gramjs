@@ -17,6 +17,47 @@ const pool = new Pool({
   query_timeout: 30000, // Таймаут запроса 30 сек
 });
 
+/**
+ * Генерирует уникальный slug на основе title
+ */
+async function generateUniqueSlug(title) {
+  // Транслитерируем title и очищаем от спецсимволов
+  let base =
+    translit(title)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '')
+      .slice(0, 100) || 'post';
+
+  // Убираем дефисы в начале и конце
+  base = base.replace(/^-+|-+$/g, '');
+
+  // Если после очистки осталась пустая строка, используем значение по умолчанию
+  if (!base) {
+    base = 'post';
+  }
+
+  // Проверяем, доступен ли slug
+  let slug = base;
+  let counter = 0;
+  const maxAttempts = 100;
+
+  while (counter < maxAttempts) {
+    const sql = `SELECT id FROM post WHERE slug = $1 LIMIT 1`;
+    const existing = await pool.query(sql, [slug]);
+
+    if (existing.rows.length === 0) {
+      return slug;
+    }
+
+    counter++;
+    // Добавляем числовой суффикс
+    slug = `${base}-${counter}`;
+  }
+
+  // На случай если не получилось найти уникальный за 100 попыток
+  throw new Error('Could not generate unique slug');
+}
+
 // async function savePostOld(postData) {
 //   const regionName = postData.hashtags[0].replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
 //   const { regionId } = await getRegionIdByRegionName(regionName);
@@ -178,15 +219,19 @@ async function savePost(postData) {
           job_id, 
           created_at, 
           updated_at, 
-          user_id
+          user_id,
+          slug
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 
           NOW(), 
           NOW(), 
-          (SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1)
+          (SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1),
+          $19
         )
       `;
+
+      const slug = await generateUniqueSlug(postData.title);
 
       await pool.query(insertQuery, [
         postId, // Передаем сгенерированный ID
@@ -207,6 +252,7 @@ async function savePost(postData) {
         postData.views,
         postData.is_ad,
         postData.job_id,
+        slug,
       ]);
 
       console.log(`💾 Создан пост ${postId}`);
