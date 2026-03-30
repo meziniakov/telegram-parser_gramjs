@@ -60,9 +60,9 @@ async function processGroupedMessages(
     return { savedPosts: 0, savedMedia: 0 };
   }
   // Пропускаем весь альбом, если первое сообщение - реклама
-  // if (isAd) {
-  //   return { savedPosts: 0, savedMedia: 0 };
-  // }
+  if (isAd) {
+    return { savedPosts: 0, savedMedia: 0 };
+  }
 
   const messageDate =
     firstMsg.date instanceof Date ? firstMsg.date : new Date(firstMsg.date * 1000);
@@ -72,6 +72,7 @@ async function processGroupedMessages(
   //   `[${jobId}] Album text from first message ${firstMsg.id}: "${firstMsg.message || '(no text)'}"`
   // );
 
+  // const parsedPost = parseTelegramPostViewrussia(firstMsg.message || '', firstMsg.entities || []);
   const parsedPost = parseTelegramPost(firstMsg.message || '', firstMsg.entities || []);
 
   console.log(`Parsed grouped post: `, parsedPost);
@@ -88,7 +89,7 @@ async function processGroupedMessages(
     author: parsedPost.author,
     author_url: parsedPost.authorUrl,
     map_url: parsedPost.mapUrl,
-    status: 'pending',
+    status: 'parsed',
     external_id: firstMsg.id,
     message_id: firstMsg.id,
     text: firstMsg.message || '', // Текст берем из первого сообщения

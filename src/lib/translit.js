@@ -48,7 +48,7 @@ function translit(word) {
 
   answer = answer.replace(/[^-0-9a-z]/g, '-');
   answer = answer.replace(/[-]+/g, '-');
-  answer = answer.replace(/^\-|-$/g, '');
+  answer = answer.replace(/^-|-$/g, '');
   return answer;
 }
 

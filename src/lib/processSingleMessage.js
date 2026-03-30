@@ -42,9 +42,9 @@ async function downloadMediaWithRetry(client, media, jobId, maxRetries = 3) {
 // Функция для обработки одного сообщения
 async function processSingleMessage(client, msg, cleanChannelName, jobId, downloadMedia = false) {
   const isAd = detectAdvertising(msg.message);
-  // if (isAd) {
-  //   return { savedPosts: 0, savedMedia: 0 };
-  // }
+  if (isAd) {
+    return { savedPosts: 0, savedMedia: 0 };
+  }
   if (!msg.media) {
     console.log(`[${jobId}] No media found in message ${msg.id}, skipping...`);
     return { savedPosts: 0, savedMedia: 0 };
@@ -52,6 +52,7 @@ async function processSingleMessage(client, msg, cleanChannelName, jobId, downlo
 
   const messageDate = msg.date instanceof Date ? msg.date : new Date(msg.date * 1000);
 
+  // const parsedPost = parseTelegramPostViewrussia(msg.message || '', msg.entities || []);
   const parsedPost = parseTelegramPost(msg.message || '', msg.entities || []);
 
   console.log(`Parsed single post: `, parsedPost);
@@ -68,7 +69,7 @@ async function processSingleMessage(client, msg, cleanChannelName, jobId, downlo
     author: parsedPost.author,
     author_url: parsedPost.authorUrl,
     map_url: parsedPost.mapUrl,
-    status: 'pending',
+    status: 'parsed',
     external_id: msg.id,
     message_id: msg.id,
     text: msg.message || '',

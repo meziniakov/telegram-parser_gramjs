@@ -101,7 +101,14 @@ const pool = new Pool({
 // }
 
 async function savePost(postData) {
-  const regionName = postData.hashtags[0].replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
+  const regionName = postData.hashtags.some(
+    (tag) =>
+      tag.toLowerCase().includes('край') ||
+      tag.toLowerCase().includes('область') ||
+      tag.toLowerCase().includes('республика') ||
+      tag.includes('округ')
+  );
+  // const regionName = postData.hashtags[0]?.replace(/(?<!^)(?=[А-Я])/g, ' ').trim();
   const { regionId } = await getRegionIdByRegionName(regionName);
 
   // console.log({ postData });

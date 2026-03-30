@@ -18,7 +18,7 @@ async function parseChannelResumable(channelUsername, options = {}) {
   const {
     limit = 100,
     offset = 0,
-    downloadMedia = false,
+    downloadMedia = true,
     // fetchDirectUrls = false,
     jobId,
     batchSize = 50,
@@ -26,8 +26,6 @@ async function parseChannelResumable(channelUsername, options = {}) {
     sinceMessageId,
     proxy = null,
   } = options;
-
-  console.log({ options });
 
   // Настройка клиента с proxy
   const clientOptions = {
